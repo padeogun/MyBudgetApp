@@ -1,0 +1,473 @@
+{
+  "global": {
+    "color": {
+      "light": {
+        "snow-mist": {
+          "value": "#F5FBFC",
+          "type": "color",
+          "description": "App background"
+        },
+        "ice-wash": {
+          "value": "#E0F4F6",
+          "type": "color",
+          "description": "Card / surface background"
+        },
+        "haze-teal": {
+          "value": "#A8D2D6",
+          "type": "color",
+          "description": "Borders and dividers"
+        }
+      },
+      "brand": {
+        "ocean-teal": {
+          "value": "#02A8B9",
+          "type": "color",
+          "description": "Primary action colour"
+        },
+        "seafoam": {
+          "value": "#03BCA5",
+          "type": "color",
+          "description": "Savings and income"
+        },
+        "slate": {
+          "value": "#4A5050",
+          "type": "color",
+          "description": "Body text"
+        }
+      },
+      "dark": {
+        "deep-ink": {
+          "value": "#1F2C2C",
+          "type": "color",
+          "description": "Headings and dark mode background"
+        }
+      },
+      "accent": {
+        "amber-alert": {
+          "value": "#F4A535",
+          "type": "color",
+          "description": "Warning — nearing budget limit"
+        },
+        "coral-red": {
+          "value": "#E8566A",
+          "type": "color",
+          "description": "Over budget and debt states"
+        }
+      }
+    },
+    "typography": {
+      "fontFamily": {
+        "sans": {
+          "value": "Roboto",
+          "type": "fontFamilies"
+        },
+        "mono": {
+          "value": "Roboto Mono",
+          "type": "fontFamilies"
+        }
+      },
+      "fontWeight": {
+        "light": {
+          "value": "300",
+          "type": "fontWeights"
+        },
+        "regular": {
+          "value": "400",
+          "type": "fontWeights"
+        },
+        "medium": {
+          "value": "500",
+          "type": "fontWeights"
+        }
+      },
+      "lineHeight": {
+        "tight": {
+          "value": "115%",
+          "type": "lineHeights"
+        },
+        "snug": {
+          "value": "130%",
+          "type": "lineHeights"
+        },
+        "normal": {
+          "value": "140%",
+          "type": "lineHeights"
+        },
+        "relaxed": {
+          "value": "160%",
+          "type": "lineHeights"
+        }
+      },
+      "fontSize": {
+        "display": {
+          "value": "32",
+          "type": "fontSizes"
+        },
+        "title": {
+          "value": "22",
+          "type": "fontSizes"
+        },
+        "subtitle": {
+          "value": "17",
+          "type": "fontSizes"
+        },
+        "body": {
+          "value": "15",
+          "type": "fontSizes"
+        },
+        "label": {
+          "value": "12",
+          "type": "fontSizes"
+        },
+        "mono": {
+          "value": "14",
+          "type": "fontSizes"
+        }
+      },
+      "letterSpacing": {
+        "tight": {
+          "value": "0",
+          "type": "letterSpacing"
+        },
+        "label": {
+          "value": "8%",
+          "type": "letterSpacing"
+        }
+      }
+    },
+    "borderRadius": {
+      "sm": {
+        "value": "6",
+        "type": "borderRadius"
+      },
+      "md": {
+        "value": "8",
+        "type": "borderRadius"
+      },
+      "lg": {
+        "value": "12",
+        "type": "borderRadius"
+      },
+      "pill": {
+        "value": "999",
+        "type": "borderRadius"
+      }
+    },
+    "borderWidth": {
+      "hairline": {
+        "value": "0.5",
+        "type": "borderWidth"
+      },
+      "default": {
+        "value": "1",
+        "type": "borderWidth"
+      },
+      "featured": {
+        "value": "2",
+        "type": "borderWidth"
+      }
+    },
+    "spacing": {
+      "xs": {
+        "value": "4",
+        "type": "spacing"
+      },
+      "sm": {
+        "value": "8",
+        "type": "spacing"
+      },
+      "md": {
+        "value": "12",
+        "type": "spacing"
+      },
+      "lg": {
+        "value": "16",
+        "type": "spacing"
+      },
+      "xl": {
+        "value": "24",
+        "type": "spacing"
+      },
+      "2xl": {
+        "value": "32",
+        "type": "spacing"
+      }
+    },
+    "sizing": {
+      "icon-sm": {
+        "value": "16",
+        "type": "sizing"
+      },
+      "icon-md": {
+        "value": "20",
+        "type": "sizing"
+      },
+      "icon-lg": {
+        "value": "24",
+        "type": "sizing"
+      },
+      "btn-height-default": {
+        "value": "38",
+        "type": "sizing"
+      },
+      "btn-height-sm": {
+        "value": "30",
+        "type": "sizing"
+      },
+      "avatar-sm": {
+        "value": "36",
+        "type": "sizing"
+      },
+      "avatar-md": {
+        "value": "44",
+        "type": "sizing"
+      }
+    }
+  },
+  "typography-styles": {
+    "display": {
+      "value": {
+        "fontFamily": "{global.typography.fontFamily.sans}",
+        "fontWeight": "{global.typography.fontWeight.light}",
+        "fontSize": "{global.typography.fontSize.display}",
+        "lineHeight": "{global.typography.lineHeight.tight}",
+        "letterSpacing": "{global.typography.letterSpacing.tight}"
+      },
+      "type": "typography",
+      "description": "Hero totals and large balance figures"
+    },
+    "title": {
+      "value": {
+        "fontFamily": "{global.typography.fontFamily.sans}",
+        "fontWeight": "{global.typography.fontWeight.medium}",
+        "fontSize": "{global.typography.fontSize.title}",
+        "lineHeight": "{global.typography.lineHeight.snug}",
+        "letterSpacing": "{global.typography.letterSpacing.tight}"
+      },
+      "type": "typography",
+      "description": "Page and screen titles"
+    },
+    "subtitle": {
+      "value": {
+        "fontFamily": "{global.typography.fontFamily.sans}",
+        "fontWeight": "{global.typography.fontWeight.medium}",
+        "fontSize": "{global.typography.fontSize.subtitle}",
+        "lineHeight": "{global.typography.lineHeight.normal}",
+        "letterSpacing": "{global.typography.letterSpacing.tight}"
+      },
+      "type": "typography",
+      "description": "Section headings and card titles"
+    },
+    "body": {
+      "value": {
+        "fontFamily": "{global.typography.fontFamily.sans}",
+        "fontWeight": "{global.typography.fontWeight.regular}",
+        "fontSize": "{global.typography.fontSize.body}",
+        "lineHeight": "{global.typography.lineHeight.relaxed}",
+        "letterSpacing": "{global.typography.letterSpacing.tight}"
+      },
+      "type": "typography",
+      "description": "Main body and descriptive text"
+    },
+    "label": {
+      "value": {
+        "fontFamily": "{global.typography.fontFamily.sans}",
+        "fontWeight": "{global.typography.fontWeight.medium}",
+        "fontSize": "{global.typography.fontSize.label}",
+        "lineHeight": "{global.typography.lineHeight.normal}",
+        "letterSpacing": "{global.typography.letterSpacing.label}"
+      },
+      "type": "typography",
+      "description": "Uppercase form labels and category tags"
+    },
+    "mono": {
+      "value": {
+        "fontFamily": "{global.typography.fontFamily.mono}",
+        "fontWeight": "{global.typography.fontWeight.regular}",
+        "fontSize": "{global.typography.fontSize.mono}",
+        "lineHeight": "{global.typography.lineHeight.normal}",
+        "letterSpacing": "{global.typography.letterSpacing.tight}"
+      },
+      "type": "typography",
+      "description": "Transaction amounts and account numbers"
+    }
+  },
+  "component": {
+    "button": {
+      "primary": {
+        "background": {
+          "value": "{global.color.brand.ocean-teal}",
+          "type": "color"
+        },
+        "text": {
+          "value": "#FFFFFF",
+          "type": "color"
+        },
+        "radius": {
+          "value": "{global.borderRadius.md}",
+          "type": "borderRadius"
+        },
+        "height": {
+          "value": "{global.sizing.btn-height-default}",
+          "type": "sizing"
+        }
+      },
+      "secondary": {
+        "background": {
+          "value": "{global.color.light.ice-wash}",
+          "type": "color"
+        },
+        "text": {
+          "value": "{global.color.brand.ocean-teal}",
+          "type": "color"
+        }
+      },
+      "outline": {
+        "background": {
+          "value": "transparent",
+          "type": "color"
+        },
+        "text": {
+          "value": "{global.color.brand.ocean-teal}",
+          "type": "color"
+        },
+        "border": {
+          "value": "{global.color.brand.ocean-teal}",
+          "type": "color"
+        }
+      },
+      "success": {
+        "background": {
+          "value": "{global.color.brand.seafoam}",
+          "type": "color"
+        },
+        "text": {
+          "value": "#FFFFFF",
+          "type": "color"
+        }
+      },
+      "danger": {
+        "background": {
+          "value": "{global.color.accent.coral-red}",
+          "type": "color"
+        },
+        "text": {
+          "value": "#FFFFFF",
+          "type": "color"
+        }
+      },
+      "ghost": {
+        "background": {
+          "value": "transparent",
+          "type": "color"
+        },
+        "text": {
+          "value": "{global.color.brand.slate}",
+          "type": "color"
+        }
+      }
+    },
+    "card": {
+      "background": {
+        "value": "#FFFFFF",
+        "type": "color"
+      },
+      "border": {
+        "value": "{global.color.light.haze-teal}",
+        "type": "color"
+      },
+      "radius": {
+        "value": "{global.borderRadius.lg}",
+        "type": "borderRadius"
+      },
+      "padding": {
+        "value": "{global.spacing.lg}",
+        "type": "spacing"
+      }
+    },
+    "card-dark": {
+      "background": {
+        "value": "{global.color.dark.deep-ink}",
+        "type": "color"
+      },
+      "border": {
+        "value": "{global.color.brand.slate}",
+        "type": "color"
+      },
+      "radius": {
+        "value": "{global.borderRadius.lg}",
+        "type": "borderRadius"
+      }
+    },
+    "progress-bar": {
+      "track": {
+        "value": "{global.color.light.ice-wash}",
+        "type": "color"
+      },
+      "fill-default": {
+        "value": "{global.color.brand.ocean-teal}",
+        "type": "color"
+      },
+      "fill-warning": {
+        "value": "{global.color.accent.amber-alert}",
+        "type": "color"
+      },
+      "fill-danger": {
+        "value": "{global.color.accent.coral-red}",
+        "type": "color"
+      },
+      "fill-success": {
+        "value": "{global.color.brand.seafoam}",
+        "type": "color"
+      },
+      "height": {
+        "value": "5",
+        "type": "sizing"
+      },
+      "radius": {
+        "value": "{global.borderRadius.pill}",
+        "type": "borderRadius"
+      }
+    },
+    "tag": {
+      "radius": {
+        "value": "{global.borderRadius.pill}",
+        "type": "borderRadius"
+      },
+      "income-background": {
+        "value": "#E8F9F7",
+        "type": "color"
+      },
+      "income-text": {
+        "value": "{global.color.brand.seafoam}",
+        "type": "color"
+      },
+      "default-background": {
+        "value": "{global.color.light.ice-wash}",
+        "type": "color"
+      },
+      "default-text": {
+        "value": "{global.color.brand.ocean-teal}",
+        "type": "color"
+      }
+    },
+    "icon-container": {
+      "size": {
+        "value": "{global.sizing.avatar-sm}",
+        "type": "sizing"
+      },
+      "radius": {
+        "value": "10",
+        "type": "borderRadius"
+      },
+      "background-default": {
+        "value": "{global.color.light.ice-wash}",
+        "type": "color"
+      },
+      "background-income": {
+        "value": "#E8F9F7",
+        "type": "color"
+      }
+    }
+  }
+}

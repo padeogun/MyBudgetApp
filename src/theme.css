@@ -1,0 +1,97 @@
+/* Bappy — orbital-budget tokens, slightly expressive interpretation */
+:root {
+  /* Palette */
+  --c-snow-mist: #F5FBFC;
+  --c-ice-wash: #E0F4F6;
+  --c-haze-teal: #A8D2D6;
+  --c-ocean-teal: #02A8B9;
+  --c-ocean-teal-deep: #018899;
+  --c-seafoam: #03BCA5;
+  --c-seafoam-tint: #E8F9F7;
+  --c-slate: #4A5050;
+  --c-slate-mute: #7A8181;
+  --c-deep-ink: #1F2C2C;
+  --c-deep-ink-2: #2B3B3B;
+  --c-amber: #F4A535;
+  --c-amber-tint: #FDF1DC;
+  --c-coral: #E8566A;
+  --c-coral-tint: #FBE3E7;
+  --c-white: #ffffff;
+  --c-border: #DCEFF1;
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  /* Spacing */
+  --s-xs: 4px;
+  --s-sm: 8px;
+  --s-md: 12px;
+  --s-lg: 16px;
+  --s-xl: 24px;
+  --s-2xl: 32px;
+
+  /* Type */
+  --f-sans: 'Roboto', -apple-system, system-ui, sans-serif;
+  --f-mono: 'Roboto Mono', ui-monospace, monospace;
+
+  --fs-display: 32px;
+  --fs-title: 22px;
+  --fs-subtitle: 17px;
+  --fs-body: 15px;
+  --fs-label: 12px;
+  --fs-mono: 14px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; margin: 0; padding: 0; }
+body {
+  font-family: var(--f-sans);
+  color: var(--c-slate);
+  background: var(--c-snow-mist);
+  overflow: hidden;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; padding: 0; color: inherit; }
+input, textarea, select { font-family: inherit; color: inherit; }
+
+/* Page-level stage — fills the full viewport */
+.bappy-stage {
+  width: 100%;
+  height: 100%;
+}
+
+/* Number formatting */
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Hide native scrollbar but keep scroll */
+.bappy-scroll { scrollbar-width: none; }
+.bappy-scroll::-webkit-scrollbar { display: none; }
+
+/* Subtle motion */
+@keyframes bappy-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bappy-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes bappy-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes bappy-scrim {
+  from { background: rgba(0,0,0,0); }
+  to { background: rgba(31,44,44,0.45); }
+}
+@keyframes bappy-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

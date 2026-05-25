@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="460" viewBox="0 0 680 460" role="img">
+  <title>MyBudgetApp screen schema</title>
+  <desc>Sitemap showing auth flow, five primary navigation tabs with their sub-screens, and the settings hub.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1 L8 5 L2 9" fill="none" stroke="#4A5050" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .auth { fill: #F1EFE8; stroke: #5F5E5A; }
+      .auth-t { fill: #2C2C2A; }
+      .auth-s { fill: #5F5E5A; }
+      .nav { fill: #E0F4F6; stroke: #02A8B9; }
+      .nav-t { fill: #1F2C2C; }
+      .nav-s { fill: #4A5050; }
+      .set { fill: #EEEDFE; stroke: #534AB7; }
+      .set-t { fill: #26215C; }
+      .set-s { fill: #3C3489; }
+      .th { font-family: Roboto, sans-serif; font-size: 14px; font-weight: 500; }
+      .ts { font-family: Roboto, sans-serif; font-size: 12px; font-weight: 400; }
+      .conn { stroke: #A8D2D6; stroke-width: 0.5; }
+    </style>
+  </defs>
+
+  <!-- Auth tier -->
+  <rect class="auth" x="165" y="30" width="160" height="56" rx="8" stroke-width="0.5"/>
+  <text class="th auth-t" x="245" y="54" text-anchor="middle">Sign in</text>
+  <text class="ts auth-s" x="245" y="74" text-anchor="middle">Google account</text>
+
+  <rect class="auth" x="355" y="30" width="160" height="56" rx="8" stroke-width="0.5"/>
+  <text class="th auth-t" x="435" y="54" text-anchor="middle">First-run setup</text>
+  <text class="ts auth-s" x="435" y="74" text-anchor="middle">Excel + pay day</text>
+
+  <line x1="325" y1="58" x2="353" y2="58" stroke="#4A5050" stroke-width="0.5" marker-end="url(#arrow)"/>
+  <line x1="340" y1="86" x2="340" y2="108" stroke="#4A5050" stroke-width="0.5" marker-end="url(#arrow)"/>
+
+  <!-- Tabs row -->
+  <rect class="nav" x="41" y="110" width="110" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th nav-t" x="96" y="137" text-anchor="middle">Home</text>
+
+  <rect class="nav" x="163" y="110" width="110" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th nav-t" x="218" y="137" text-anchor="middle">Accounts</text>
+
+  <rect class="nav" x="285" y="110" width="110" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th nav-t" x="340" y="137" text-anchor="middle">Activity</text>
+
+  <rect class="nav" x="407" y="110" width="110" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th nav-t" x="462" y="137" text-anchor="middle">Plans</text>
+
+  <rect class="nav" x="529" y="110" width="110" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th nav-t" x="584" y="137" text-anchor="middle">Reports</text>
+
+  <!-- Tab to first sub-screen connectors -->
+  <line class="conn" x1="96" y1="154" x2="96" y2="168"/>
+  <line class="conn" x1="218" y1="154" x2="218" y2="168"/>
+  <line class="conn" x1="340" y1="154" x2="340" y2="168"/>
+  <line class="conn" x1="462" y1="154" x2="462" y2="168"/>
+  <line class="conn" x1="584" y1="154" x2="584" y2="168"/>
+
+  <!-- Home sub-screens -->
+  <rect class="nav" x="41" y="170" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="96" y="188" text-anchor="middle">Dashboard</text>
+  <rect class="nav" x="41" y="204" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="96" y="222" text-anchor="middle">Nudge inbox</text>
+
+  <!-- Accounts sub-screens -->
+  <rect class="nav" x="163" y="170" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="218" y="188" text-anchor="middle">List</text>
+  <rect class="nav" x="163" y="204" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="218" y="222" text-anchor="middle">Detail</text>
+  <rect class="nav" x="163" y="238" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="218" y="256" text-anchor="middle">Add / edit</text>
+
+  <!-- Activity sub-screens -->
+  <rect class="nav" x="285" y="170" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="340" y="188" text-anchor="middle">Ledger</text>
+  <rect class="nav" x="285" y="204" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="340" y="222" text-anchor="middle">Detail</text>
+  <rect class="nav" x="285" y="238" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="340" y="256" text-anchor="middle">Add new</text>
+  <rect class="nav" x="285" y="272" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="340" y="290" text-anchor="middle">Transfer</text>
+
+  <!-- Plans sub-screens -->
+  <rect class="nav" x="407" y="170" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="462" y="188" text-anchor="middle">Budgets</text>
+  <rect class="nav" x="407" y="204" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="462" y="222" text-anchor="middle">Recurring</text>
+  <rect class="nav" x="407" y="238" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="462" y="256" text-anchor="middle">Suggestions</text>
+
+  <!-- Reports sub-screens -->
+  <rect class="nav" x="529" y="170" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="584" y="188" text-anchor="middle">Overview</text>
+  <rect class="nav" x="529" y="204" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="584" y="222" text-anchor="middle">Cash flow</text>
+  <rect class="nav" x="529" y="238" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="584" y="256" text-anchor="middle">Debt sim</text>
+  <rect class="nav" x="529" y="272" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts nav-s" x="584" y="290" text-anchor="middle">Summaries</text>
+
+  <!-- Settings hub -->
+  <rect class="set" x="41" y="324" width="598" height="56" rx="8" stroke-width="0.5"/>
+  <text class="th set-t" x="340" y="348" text-anchor="middle">Settings</text>
+  <text class="ts set-s" x="340" y="368" text-anchor="middle">Reached via gear icon from anywhere</text>
+
+  <!-- Settings to sub-items connectors -->
+  <line class="conn" x1="96" y1="380" x2="96" y2="394"/>
+  <line class="conn" x1="218" y1="380" x2="218" y2="394"/>
+  <line class="conn" x1="340" y1="380" x2="340" y2="394"/>
+  <line class="conn" x1="462" y1="380" x2="462" y2="394"/>
+  <line class="conn" x1="584" y1="380" x2="584" y2="394"/>
+
+  <!-- Settings sub-items -->
+  <rect class="set" x="41" y="396" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts set-s" x="96" y="414" text-anchor="middle">Profile</text>
+  <rect class="set" x="163" y="396" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts set-s" x="218" y="414" text-anchor="middle">Pay schedule</text>
+  <rect class="set" x="285" y="396" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts set-s" x="340" y="414" text-anchor="middle">Categories</text>
+  <rect class="set" x="407" y="396" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts set-s" x="462" y="414" text-anchor="middle">Nudge rules</text>
+  <rect class="set" x="529" y="396" width="110" height="28" rx="6" stroke-width="0.5"/>
+  <text class="ts set-s" x="584" y="414" text-anchor="middle">Backup</text>
+</svg>
