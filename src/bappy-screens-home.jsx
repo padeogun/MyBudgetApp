@@ -2,7 +2,7 @@ import React from 'react'
 import { BAPPY_SEED, BappyUtil, useBappy, BappyContext, BappyAuthContext, BappyProvider, useBappyAuth, BappyAuthProvider } from './bappy-state.jsx'
 import { Icon, BappyLogo, ICON_PATHS } from './bappy-icons.jsx'
 import { IconContainer, Card, Tag, ProgressBar, Button, Sheet, SectionHeader, ListRow, SeverityDot, ChannelPill, EmptyState, Toggle, Segmented, Stepper, tintBg } from './bappy-primitives.jsx'
-import { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve } from './bappy-charts.jsx'
+import { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve, useContainerWidth } from './bappy-charts.jsx'
 import { BappyRouter, BappyRouteContext, useRoute, ScreenHeader, TabBar, FAB } from './bappy-nav.jsx'
 // Bappy — Home tab (Dashboard) + Nudge inbox + detail
 
@@ -39,10 +39,14 @@ function HomeScreen() {
   const cashFlow = BappyUtil.projectCashFlow(state, 60);
   const cashFlowMin = cashFlow.length ? Math.min(...cashFlow.map(c => c.balance)) : 0;
   const cashFlowEnd = cashFlow.length ? cashFlow[cashFlow.length - 1].balance : 0;
+  const [cashChartRef, cashChartW] = useContainerWidth(306);
 
   const debtAccts = state.accounts.filter(a => a.type === 'credit_card' || a.type === 'loan');
   const longestPayoff = debtAccts.length
-    ? Math.max(...debtAccts.map(a => BappyUtil.simulateDebt(a.balance, a.apr || 7.9, Math.max(a.monthly || 25, 25)).payoffMonths))
+    ? Math.max(0, ...debtAccts.map(a => {
+        const r = BappyUtil.simulateDebt(Math.abs(a.balance), a.apr || 7.9, Math.max(a.monthly || 25, 25));
+        return Number.isFinite(r.payoffMonths) ? r.payoffMonths : 0;
+      }))
     : 0;
   const debtFreeDate = new Date(BappyUtil.today());
   debtFreeDate.setUTCMonth(debtFreeDate.getUTCMonth() + longestPayoff);
@@ -137,13 +141,15 @@ function HomeScreen() {
               {cashFlowMin < state.settings.lowBalanceFloor ? '1 liquidity alert' : 'all clear'}
             </Tag>
           </div>
-          <AreaChart
-            series={cashFlow}
-            width={306}
-            height={140}
-            floor={state.settings.lowBalanceFloor}
-            markers={[{ date: cashFlow.find(c => c.balance === cashFlowMin)?.date }]}
-          />
+          <div ref={cashChartRef}>
+            <AreaChart
+              series={cashFlow}
+              width={cashChartW}
+              height={140}
+              floor={state.settings.lowBalanceFloor}
+              markers={[{ date: cashFlow.find(c => c.balance === cashFlowMin)?.date }]}
+            />
+          </div>
         </Card>
       </div>
 

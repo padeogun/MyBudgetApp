@@ -2,7 +2,7 @@ import React from 'react'
 import { BAPPY_SEED, BappyUtil, useBappy, BappyContext, BappyAuthContext, BappyProvider, useBappyAuth, BappyAuthProvider } from './bappy-state.jsx'
 import { Icon, BappyLogo, ICON_PATHS } from './bappy-icons.jsx'
 import { IconContainer, Card, Tag, ProgressBar, Button, Sheet, SectionHeader, ListRow, SeverityDot, ChannelPill, EmptyState, Toggle, Segmented, Stepper, tintBg } from './bappy-primitives.jsx'
-import { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve } from './bappy-charts.jsx'
+import { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve, useContainerWidth } from './bappy-charts.jsx'
 import { BappyRouter, BappyRouteContext, useRoute, ScreenHeader, TabBar, FAB } from './bappy-nav.jsx'
 // Bappy — Insights tab: index, cash flow forecast, debt simulators
 
@@ -147,6 +147,7 @@ function ForecastScreen() {
   const baseCash = BappyUtil.projectCashFlow(state, horizon);
   // Apply what-if: extra income at day 7
   const cash = whatIf === 0 ? baseCash : baseCash.map((p, i) => ({ ...p, balance: p.balance + (i >= 7 ? whatIf : 0) }));
+  const [cashChartRef, cashChartW] = useContainerWidth(306);
   const minPoint = cash.length ? cash.reduce((a, b) => (b.balance < a.balance ? b : a), cash[0]) : { balance: 0, date: new Date().toISOString().slice(0, 10) };
   const endPoint = cash.length ? cash[cash.length - 1] : { balance: 0, date: new Date().toISOString().slice(0, 10) };
 
@@ -201,10 +202,10 @@ function ForecastScreen() {
                 </div>
               </div>
             </div>
-            <div style={{ marginTop: 16 }}>
+            <div style={{ marginTop: 16 }} ref={cashChartRef}>
               <AreaChart
                 series={cash}
-                width={306} height={140}
+                width={cashChartW} height={140}
                 floor={state.settings.lowBalanceFloor}
                 color="#03BCA5"
                 dark
@@ -335,10 +336,11 @@ function DebtPerScreen() {
   const [extra, setExtra] = React.useState(0);
   const [lump, setLump] = React.useState(0);
 
-  const baseline = BappyUtil.simulateDebt(account.balance, account.apr || 7.9, scheduled);
+  const baseline = BappyUtil.simulateDebt(Math.abs(account.balance), account.apr || 7.9, scheduled);
   const withExtra = BappyUtil.simulateDebt(
-    account.balance - lump, account.apr || 7.9, scheduled + extra
+    Math.max(0, Math.abs(account.balance) - lump), account.apr || 7.9, scheduled + extra
   );
+  const [debtChartRef, debtChartW] = useContainerWidth(306);
 
   const monthsSaved = baseline.payoffMonths - withExtra.payoffMonths;
   const interestSaved = baseline.interestPaid - withExtra.interestPaid;
@@ -393,8 +395,8 @@ function DebtPerScreen() {
                 )}
               </div>
             </div>
-            <div style={{ marginTop: 16 }}>
-              <DebtCurve baseline={baseline.curve} withExtra={withExtra.curve} width={306} height={140} />
+            <div style={{ marginTop: 16 }} ref={debtChartRef}>
+              <DebtCurve baseline={baseline.curve} withExtra={withExtra.curve} width={debtChartW} height={140} />
             </div>
             <div style={{ display: 'flex', gap: 14, marginTop: 6, fontSize: 11 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -532,6 +534,7 @@ function DebtAllScreen() {
   };
 
   const result = simulate(strategy, extra);
+  const [stackChartRef, stackChartW] = useContainerWidth(306);
 
   const debtFreeDate = new Date(BappyUtil.today());
   debtFreeDate.setUTCMonth(debtFreeDate.getUTCMonth() + result.months);
@@ -556,8 +559,8 @@ function DebtAllScreen() {
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
               {result.months} months · with +£{extra}/mo extra
             </div>
-            <div style={{ marginTop: 16 }}>
-              <StackedDebtChart debts={result.curves} width={306} height={150} monthsCap={result.months + 4} />
+            <div style={{ marginTop: 16 }} ref={stackChartRef}>
+              <StackedDebtChart debts={result.curves} width={stackChartW} height={150} monthsCap={result.months + 4} />
             </div>
             <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, flexWrap: 'wrap' }}>
               {result.curves.map((c, i) => (

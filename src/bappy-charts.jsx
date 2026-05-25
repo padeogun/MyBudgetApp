@@ -300,4 +300,22 @@ function DebtCurve({ baseline, withExtra, width = 340, height = 160 }) {
   );
 }
 
-export { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve };
+// ─── Responsive container width hook ────────────────────────
+function useContainerWidth(fallback = 340) {
+  const ref = React.useRef(null);
+  const [width, setWidth] = React.useState(fallback);
+  React.useEffect(() => {
+    if (!ref.current) return;
+    const w = ref.current.offsetWidth;
+    if (w > 0) setWidth(w);
+    const obs = new ResizeObserver(entries => {
+      const cw = entries[0].contentRect.width;
+      if (cw > 0) setWidth(cw);
+    });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, []);
+  return [ref, width];
+}
+
+export { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve, useContainerWidth };
