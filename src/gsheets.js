@@ -82,9 +82,14 @@ function parseTab(tabKey, rows) {
   const [, ...dataRows] = rows  // skip header row
 
   if (tabKey === 'Settings') {
-    const row = dataRows.find(r => r[0] === 'data')
-    if (!row?.[1]) return null
-    try { return JSON.parse(row[1]) } catch { return null }
+    const dataRow = dataRows.find(r => r[0] === 'data')
+    const verRow  = dataRows.find(r => r[0] === 'lastModifiedAt')
+    const remoteModifiedAt = verRow?.[1] ? Number(verRow[1]) : 0
+    if (!dataRow?.[1]) return { __remoteModifiedAt: remoteModifiedAt }
+    let settings = null
+    try { settings = JSON.parse(dataRow[1]) } catch { settings = {} }
+    // __remoteModifiedAt is a transport-only field — stripped before merging into state.settings
+    return { ...settings, __remoteModifiedAt: remoteModifiedAt }
   }
 
   return dataRows
@@ -106,6 +111,7 @@ function parseTab(tabKey, rows) {
 
 // ── Write full state to spreadsheet ───────────────────────────
 export async function writeAll(token, spreadsheetId, state) {
+  const lastModifiedAt = state.lastModifiedAt || 0
   const data = [
     makeRange('Categories',   state.categories),
     makeRange('Accounts',     state.accounts),
@@ -113,15 +119,16 @@ export async function writeAll(token, spreadsheetId, state) {
     makeRange('Recurring',    state.recurring),
     makeRange('Budgets',      state.budgets),
     makeRange('NudgeRules',   state.nudgeRules),
-    makeRange('Settings',     state.settings),
+    makeRange('Settings',     state.settings, lastModifiedAt),
   ]
 
   // Clear then write — ensures deleted rows are removed
   const clearRanges = data.map(d => d.range.split('!')[0] + '!A:Z')
-  await fetch(`${SHEETS_API}/${spreadsheetId}/values:batchClear`, {
+  const clearRes = await fetch(`${SHEETS_API}/${spreadsheetId}/values:batchClear`, {
     method: 'POST', headers: h(token),
     body: JSON.stringify({ ranges: clearRanges }),
   })
+  if (!clearRes.ok) console.warn('[gsheets] batchClear failed:', clearRes.status, '— attempting write anyway')
 
   const res = await fetch(`${SHEETS_API}/${spreadsheetId}/values:batchUpdate`, {
     method: 'POST', headers: h(token),
@@ -130,10 +137,16 @@ export async function writeAll(token, spreadsheetId, state) {
   if (!res.ok) throw new Error('Write failed: ' + res.status)
 }
 
-function makeRange(tabKey, stateVal) {
+function makeRange(tabKey, stateVal, lastModifiedAt = 0) {
   let values
   if (tabKey === 'Settings') {
-    values = [['key', 'value'], ['data', JSON.stringify(stateVal)]]
+    // Strip internal transport field before storing
+    const { __remoteModifiedAt: _, ...cleanSettings } = stateVal || {}
+    values = [
+      ['key', 'value'],
+      ['data', JSON.stringify(cleanSettings)],
+      ['lastModifiedAt', lastModifiedAt],
+    ]
   } else {
     const cols = TABS[tabKey]
     const rows = (stateVal || []).map(obj =>

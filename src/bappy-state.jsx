@@ -192,8 +192,11 @@ export const BappyUtil = {
   },
 }
 
-// ─── Reducer ──────────────────────────────────────────────────
-function bappyReducer(state, action) {
+// ─── Reducer (core — no timestamp side-effects) ───────────────
+// bappyReducerCore handles every action. The public bappyReducer wrapper
+// stamps lastModifiedAt on any action that actually changes state, so we
+// never have to remember to do it in individual cases.
+function bappyReducerCore(state, action) {
   switch (action.type) {
 
     case 'RESET':
@@ -205,22 +208,29 @@ function bappyReducer(state, action) {
       if (!action.state || !Array.isArray(action.state.accounts)) return state
       return fixDuplicateTransactionIds(action.state)
 
-    // Merge data loaded from Google Sheets (remote wins for non-empty arrays).
-    // dedupeTransactionIds is applied to whatever source wins so that stale
-    // Sheets data with duplicate IDs (from the old ADD_TRANSACTION loop) cannot
-    // restore the problem after a pull.
+    // Merge data loaded from Google Sheets.
+    // Only called when remote is confirmed newer (see loadFromSheets) OR the
+    // user explicitly forces a pull.  Remote wins for every non-empty collection;
+    // dedupeTransactionIds is applied to guard against stale duplicate IDs.
+    // lastModifiedAt is set to the remote timestamp so subsequent auto-pulls
+    // don't immediately trigger another merge.
     case 'MERGE_REMOTE': {
       const r = action.remote
+      const remoteModifiedAt = r.Settings?.__remoteModifiedAt || 0
+      // Strip the transport-only field before merging into state.settings
+      const { __remoteModifiedAt: _drop, ...cleanRemoteSettings } = r.Settings || {}
       const rawTxns = (r.Transactions && r.Transactions.length) ? r.Transactions : state.transactions
       return {
         ...state,
-        categories:   (r.Categories   && r.Categories.length)   ? r.Categories   : state.categories,
-        accounts:     (r.Accounts     && r.Accounts.length)     ? r.Accounts     : state.accounts,
-        transactions: dedupeTransactionIds(rawTxns),
-        recurring:    (r.Recurring    && r.Recurring.length)     ? r.Recurring    : state.recurring,
-        budgets:      (r.Budgets      && r.Budgets.length)       ? r.Budgets      : state.budgets,
-        nudgeRules:   (r.NudgeRules   && r.NudgeRules.length)    ? r.NudgeRules   : state.nudgeRules,
-        settings:     r.Settings ? { ...state.settings, ...r.Settings } : state.settings,
+        categories:     (r.Categories   && r.Categories.length)   ? r.Categories   : state.categories,
+        accounts:       (r.Accounts     && r.Accounts.length)     ? r.Accounts     : state.accounts,
+        transactions:   dedupeTransactionIds(rawTxns),
+        recurring:      (r.Recurring    && r.Recurring.length)    ? r.Recurring    : state.recurring,
+        budgets:        (r.Budgets      && r.Budgets.length)      ? r.Budgets      : state.budgets,
+        nudgeRules:     (r.NudgeRules   && r.NudgeRules.length)   ? r.NudgeRules   : state.nudgeRules,
+        settings:       r.Settings ? { ...state.settings, ...cleanRemoteSettings } : state.settings,
+        // Keep the remote timestamp so the next auto-pull sees no diff and skips
+        lastModifiedAt: remoteModifiedAt || state.lastModifiedAt || 0,
       }
     }
 
@@ -447,6 +457,18 @@ function bappyReducer(state, action) {
   }
 }
 
+// Wrapper: stamps lastModifiedAt on every action that produces a new state
+// object, so individual cases never need to remember to do it.
+// RESTORE and MERGE_REMOTE are exempt — they carry their own timestamps.
+const NO_TIMESTAMP_ACTIONS = new Set(['RESTORE', 'MERGE_REMOTE'])
+
+function bappyReducer(state, action) {
+  const next = bappyReducerCore(state, action)
+  if (next === state) return state                        // no-op — nothing changed
+  if (NO_TIMESTAMP_ACTIONS.has(action.type)) return next // exempt — carries its own ts
+  return { ...next, lastModifiedAt: Date.now() }
+}
+
 // ─── Main app context ─────────────────────────────────────────
 export const BappyContext = React.createContext(null)
 export const useBappy     = () => React.useContext(BappyContext)
@@ -535,8 +557,16 @@ export function BappyProvider({ children }) {
     return () => clearTimeout(writeTimer.current)
   }, [state])
 
-  // Load from Sheets and merge — used at sign-in and on manual pull
-  const loadFromSheets = React.useCallback(async (token) => {
+  // Load from Sheets and merge — used at sign-in and on manual pull.
+  //
+  // Conflict resolution (unless force=true):
+  //  • remote newer  → apply MERGE_REMOTE (remote wins)
+  //  • local newer   → push local to Sheets (local wins); no state change
+  //  • both at zero  → if local has data, push; otherwise apply MERGE_REMOTE
+  //
+  // force=true skips the comparison and always applies whatever Sheets has
+  // (used by the explicit "Pull from cloud" button in Backup screen).
+  const loadFromSheets = React.useCallback(async (token, { force = false } = {}) => {
     let sheetId = sheetIdRef.current
     if (!sheetId) {
       sheetId = await getOrCreateSpreadsheet(token)
@@ -544,11 +574,32 @@ export function BappyProvider({ children }) {
       sheetIdRef.current = sheetId
     }
     const remote = await readAll(token, sheetId)
+
+    if (!force) {
+      const remoteModifiedAt = remote.Settings?.__remoteModifiedAt || 0
+      const localModifiedAt  = stateRef.current.lastModifiedAt || 0
+      const localHasData     = (stateRef.current.accounts?.length || 0) > 0
+
+      if (localModifiedAt >= remoteModifiedAt && (localHasData || localModifiedAt > 0)) {
+        // Local is newer or equal — push local to Sheets so it's up to date, skip merge
+        console.info('[bappy] Local state is newer than Sheets (local=%d remote=%d) — pushing local', localModifiedAt, remoteModifiedAt)
+        try {
+          await writeAll(token, sheetId, stateRef.current)
+          setLastSynced(new Date().toISOString())
+          lastWriteRef.current = Date.now()
+        } catch (pushErr) {
+          console.warn('[bappy] Push-instead-of-pull failed:', pushErr)
+        }
+        return sheetId
+      }
+    }
+
+    // Remote is newer (or force=true) — apply MERGE_REMOTE
     skipNextSync.current = true   // don't echo back what we just read
     dispatch({ type: 'MERGE_REMOTE', remote })
     setLastSynced(new Date().toISOString())
     return sheetId
-  }, [])
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Immediately push current local state to Sheets, overwriting whatever was there.
   // Use this when local data is correct and you want to discard stale Sheets data.
@@ -575,14 +626,15 @@ export function BappyProvider({ children }) {
     }
   }, [])  // stateRef is a ref — always current, no dep needed
 
-  // Manually pull the latest data from Sheets (e.g. from Backup screen or after switching devices)
+  // Manually pull the latest data from Sheets (e.g. from Backup screen or after switching devices).
+  // Always applies remote data regardless of version — the user explicitly requested a pull.
   const pullFromSheets = React.useCallback(async () => {
     if (!sheetIdRef.current && !tokenRef.current) throw new Error('Not connected to Google Sheets. Sign in first.')
     setSyncStatus('syncing')
     try {
       const token = tokenRef.current || await getToken(true)
       tokenRef.current = token
-      await loadFromSheets(token)
+      await loadFromSheets(token, { force: true })
       setSyncStatus('idle')
       setSyncError(null)
     } catch (err) {
@@ -642,17 +694,19 @@ export function BappyAuthProvider({ children }) {
 
   // Auto-pull from Sheets whenever the app tab becomes visible again
   // (handles the "switched device, came back to this tab" case)
-  // Throttled to at most once per 2 minutes — gives the debounced write (1.5 s)
-  // plenty of time to land on Sheets before a pull could race against it.
+  // Throttled to at most once per 2 minutes.
+  // loadFromSheets now performs version comparison, so even if the pull fires it
+  // will push local state instead of overwriting it when local is newer.
   const AUTO_PULL_THROTTLE = 120_000  // 2 minutes
   React.useEffect(() => {
     if (!auth.signedIn || auth.user?.method !== 'google') return
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
       if (Date.now() - lastAutoSyncRef.current < AUTO_PULL_THROTTLE) return
-      // Don't pull if a write just completed or is still in the 1.5 s debounce
-      // window — pulling stale Sheets data right after an edit would overwrite it.
-      if (Date.now() - (_lastWriteAt?.current || 0) < 5_000) return
+      // Extra guard: if a write just finished or is still in the debounce window
+      // (1.5 s) plus network round-trip buffer (10 s), the version check in
+      // loadFromSheets will handle it — but this avoids a redundant network round-trip.
+      if (Date.now() - (_lastWriteAt?.current || 0) < 10_000) return
       lastAutoSyncRef.current = Date.now()
       getToken(true)
         .then(token => { _setToken(token); return _loadFromSheets(token) })

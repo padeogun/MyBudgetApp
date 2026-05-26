@@ -75,14 +75,15 @@ export const DEFAULT_SETTINGS = {
 // ─── Initial app state — all personal data starts empty ───────
 // BAPPY_SEED is still exported for screen files that import it.
 export const BAPPY_SEED = {
-  categories:   DEFAULT_CATEGORIES,
-  accounts:     [],
-  transactions: [],
-  recurring:    [],
-  budgets:      [],
-  suggestions:  [],
-  nudges:       [],
-  nudgeRules:   DEFAULT_NUDGE_RULES,
-  settings:     DEFAULT_SETTINGS,
-  lastImport:   null,   // { ids, count, date, filename } — used for rollback
+  categories:     DEFAULT_CATEGORIES,
+  accounts:       [],
+  transactions:   [],
+  recurring:      [],
+  budgets:        [],
+  suggestions:    [],
+  nudges:         [],
+  nudgeRules:     DEFAULT_NUDGE_RULES,
+  settings:       DEFAULT_SETTINGS,
+  lastImport:     null,   // { ids, count, date, filename } — used for rollback
+  lastModifiedAt: 0,      // epoch ms — bumped on every mutation; used for Sheets conflict resolution
 };
