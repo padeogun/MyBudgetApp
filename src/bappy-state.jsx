@@ -213,20 +213,20 @@ function bappyReducerCore(state, action) {
     // don't immediately trigger another merge.
     case 'MERGE_REMOTE': {
       const r = action.remote
-      const remoteModifiedAt = r.Settings?.__remoteModifiedAt || 0
-      // Strip the transport-only field before merging into state.settings
-      const { __remoteModifiedAt: _drop, ...cleanRemoteSettings } = r.Settings || {}
-      const rawTxns = (r.Transactions && r.Transactions.length) ? r.Transactions : state.transactions
+      // Firestore stores field names matching the in-memory state shape (lowercase camelCase).
+      // __remoteModifiedAt is a transport-only field added by readUserState for version comparison.
+      const remoteModifiedAt = r.settings?.__remoteModifiedAt || r.lastModifiedAt || 0
+      const { __remoteModifiedAt: _drop, ...cleanRemoteSettings } = r.settings || {}
+      const rawTxns = (r.transactions?.length) ? r.transactions : state.transactions
       return {
         ...state,
-        categories:     (r.Categories   && r.Categories.length)   ? r.Categories   : state.categories,
-        accounts:       (r.Accounts     && r.Accounts.length)     ? r.Accounts     : state.accounts,
-        transactions:   dedupeTransactionIds(rawTxns),
-        recurring:      (r.Recurring    && r.Recurring.length)    ? r.Recurring    : state.recurring,
-        budgets:        (r.Budgets      && r.Budgets.length)      ? r.Budgets      : state.budgets,
-        nudgeRules:     (r.NudgeRules   && r.NudgeRules.length)   ? r.NudgeRules   : state.nudgeRules,
-        settings:       r.Settings ? { ...state.settings, ...cleanRemoteSettings } : state.settings,
-        // Keep the remote timestamp so the next auto-pull sees no diff and skips
+        categories:   (r.categories?.length)  ? r.categories  : state.categories,
+        accounts:     (r.accounts?.length)     ? r.accounts    : state.accounts,
+        transactions: dedupeTransactionIds(rawTxns),
+        recurring:    (r.recurring?.length)    ? r.recurring   : state.recurring,
+        budgets:      (r.budgets?.length)      ? r.budgets     : state.budgets,
+        nudgeRules:   (r.nudgeRules?.length)   ? r.nudgeRules  : state.nudgeRules,
+        settings:     r.settings ? { ...state.settings, ...cleanRemoteSettings } : state.settings,
         lastModifiedAt: remoteModifiedAt || state.lastModifiedAt || 0,
       }
     }

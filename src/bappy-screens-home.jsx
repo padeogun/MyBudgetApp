@@ -430,17 +430,56 @@ function NudgeDetailScreen() {
 // ─── Empty / onboarding state ─────────────────────────────────
 function HomeEmpty() {
   const route = useRoute();
+  const { pullFromSheets, syncStatus } = useBappy();
+  const { user } = useBappyAuth();
+  const [pulling, setPulling] = React.useState(false);
+  const [pullMsg, setPullMsg] = React.useState('');
+
+  const handlePull = async () => {
+    setPulling(true);
+    setPullMsg('');
+    try {
+      await pullFromSheets();
+      setPullMsg('Done — your data has been restored.');
+    } catch (e) {
+      setPullMsg('Could not reach cloud: ' + (e?.message || String(e)));
+    } finally {
+      setPulling(false);
+    }
+  };
+
   const steps = [
-    { icon: 'acc-current', label: 'Add your current account', desc: 'Your everyday bank account — the foundation of your budget.' },
-    { icon: 'swap',        label: 'Log a transaction',        desc: 'Tap + to add income or spending. Bappy keeps the balance up to date.' },
-    { icon: 'home',        label: 'Set a budget',             desc: 'Go to Plan → Budgets and set a monthly limit per category.' },
+    { icon: 'acc-bank', label: 'Add your current account', desc: 'Your everyday bank account — the foundation of your budget.' },
+    { icon: 'swap',     label: 'Log a transaction',        desc: 'Tap + to add income or spending. Bappy keeps the balance up to date.' },
+    { icon: 'home',     label: 'Set a budget',             desc: 'Go to Plan → Budgets and set a monthly limit per category.' },
   ];
+
   return (
     <div style={{ padding: '0 16px 120px' }}>
       <ScreenHeader title="Welcome to Bappy" subtitle="Let's set up your budget" />
-      <div style={{ padding: '8px 0 20px', fontSize: 14, color: 'var(--c-slate)', lineHeight: 1.6 }}>
-        Your dashboard will appear here once you've added at least one account.
+
+      {/* Signed-in account + restore — helps diagnose cross-device sync issues */}
+      <Card padding={14} style={{ marginBottom: 16, background: 'var(--c-ice-wash)', border: '1px solid var(--c-haze-teal)' }}>
+        <div style={{ fontSize: 12, color: 'var(--c-slate-mute)', marginBottom: 6 }}>
+          Signed in as <strong style={{ color: 'var(--c-deep-ink)' }}>{user?.email || 'unknown'}</strong>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5, marginBottom: 10 }}>
+          Already have data on another device? Restore it from the cloud.
+        </div>
+        <Button variant="secondary" full icon="refresh" onClick={handlePull} disabled={pulling}>
+          {pulling ? 'Restoring…' : 'Restore from cloud'}
+        </Button>
+        {pullMsg && (
+          <div style={{ marginTop: 8, fontSize: 12, color: pullMsg.startsWith('Could') ? 'var(--c-coral)' : 'var(--c-seafoam)', fontWeight: 500 }}>
+            {pullMsg}
+          </div>
+        )}
+      </Card>
+
+      <div style={{ padding: '4px 0 16px', fontSize: 14, color: 'var(--c-slate)', lineHeight: 1.6 }}>
+        Or start fresh — your dashboard will appear once you've added at least one account.
       </div>
+
       {steps.map((s, i) => (
         <div key={i} style={{
           display: 'flex', gap: 14, alignItems: 'flex-start',
@@ -458,6 +497,7 @@ function HomeEmpty() {
           </div>
         </div>
       ))}
+
       <Button variant="primary" full size="lg" style={{ marginTop: 24 }} onClick={() => route.gotoTab('accounts')}>
         Add your first account
       </Button>
