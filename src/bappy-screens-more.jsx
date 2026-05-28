@@ -238,7 +238,7 @@ function MoreHomeScreen() {
           />
         )}
         <SettingsRow icon="acc-bank" title="Backup & export"
-          subtitle="Google Sheets sync active"
+          subtitle="Firebase cloud sync active"
           onClick={() => route.push('more-backup')} last />
       </SettingsGroup>
 
@@ -840,7 +840,9 @@ function MoreBackupScreen() {
   const [busy, setBusy] = React.useState(null);
   const [notice, setNotice] = React.useState('');
 
-  const isGoogleUser = auth.signedIn && auth.user?.method === 'google';
+  // Any Firebase-authenticated user (Google or email) gets cloud sync.
+  // Local-only: signed in without a UID (demo / fallback path).
+  const isGoogleUser = auth.signedIn && !!auth.user?.uid;
 
   // Human-readable "X min ago" / "just now" for the sync timestamp
   const fmtSyncAge = (iso) => {
@@ -866,7 +868,7 @@ function MoreBackupScreen() {
 
   const handlePush = async () => {
     if (busy) return;
-    if (!confirm('Push your current local data to the cloud? This will overwrite whatever is stored on Google Sheets with what you have on this device.')) return;
+    if (!confirm('Push your current local data to Firebase? This will overwrite whatever is stored in the cloud with what you have on this device.')) return;
     setBusy('push');
     try {
       await pushToSheets();
@@ -983,7 +985,7 @@ function MoreBackupScreen() {
             <div>
               <div style={{ fontSize: 13, color: 'var(--c-slate-mute)' }}>Local storage</div>
               <div style={{ fontSize: 15, color: 'var(--c-deep-ink)', fontWeight: 500, marginTop: 2 }}>
-                {isGoogleUser ? 'Cross-device sync active' : 'Sign in with Google to sync'}
+                {isGoogleUser ? 'Firebase sync active' : 'Sign in to enable cloud sync'}
               </div>
             </div>
             <Tag variant={isGoogleUser ? 'income' : 'default'}>
@@ -1030,7 +1032,7 @@ function MoreBackupScreen() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--c-deep-ink)' }}>
-                    Google Sheets
+                    Firebase Cloud
                   </div>
                   <div style={{ fontSize: 12, color: syncStatus === 'error' ? 'var(--c-coral)' : 'var(--c-slate-mute)', marginTop: 2 }}>
                     {syncStatus === 'syncing'
@@ -1047,7 +1049,7 @@ function MoreBackupScreen() {
                 </Tag>
               </div>
               <div style={{ fontSize: 12, color: 'var(--c-slate-mute)', marginTop: 8, lineHeight: 1.5 }}>
-                Your data pushes to Google Sheets automatically. Use "Pull from cloud" to fetch changes made on another device.
+                Your data syncs to Firebase automatically. Use "Pull from cloud" to fetch changes made on another device.
               </div>
             </div>
             <SettingsRow
@@ -1069,7 +1071,7 @@ function MoreBackupScreen() {
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
               <Icon name="info" size={16} color="var(--c-ocean-teal)" style={{ marginTop: 1, flexShrink: 0 }} />
               <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5 }}>
-                Sign in with Google to enable automatic cross-device sync via Google Sheets.
+                Sign in with Google to enable automatic cross-device sync via Firebase.
               </div>
             </div>
           </div>
@@ -1318,6 +1320,66 @@ function RuleCard({ rule }) {
   );
 }
 
+// ─── Import duplicate detection ──────────────────────────────
+// Returns the set of indices (into newTxns) that are exact duplicates of
+// an already-existing transaction (same account, direction, amount, date, description).
+function findImportDuplicateIndices(newTxns, existingTxns) {
+  const norm = s => (s || '').trim().toLowerCase();
+  const dupeIdx = new Set();
+  newTxns.forEach((t, i) => {
+    const isDup = existingTxns.some(ex =>
+      ex.accountId  === t.accountId  &&
+      ex.direction  === t.direction  &&
+      ex.date       === t.date       &&
+      Math.abs(ex.amount - t.amount) < 0.01 &&
+      norm(ex.description) === norm(t.description)
+    );
+    if (isDup) dupeIdx.add(i);
+  });
+  return dupeIdx;
+}
+
+// ─── Transfer auto-link helpers (used by ImportSheet) ────────
+// Find exact-match transfer pairs: same date, same amount, opposite directions, different accounts.
+function findAutoLinkPairs(unlinkedTransfers) {
+  const expenses = unlinkedTransfers.filter(t => t.direction === 'expense');
+  const incomes  = unlinkedTransfers.filter(t => t.direction === 'income');
+  const pairs = [], usedIds = new Set();
+  expenses.forEach(exp => {
+    if (usedIds.has(exp.id)) return;
+    const match = incomes.find(inc =>
+      !usedIds.has(inc.id) &&
+      inc.amount === exp.amount &&
+      inc.date === exp.date &&
+      inc.accountId !== exp.accountId
+    );
+    if (match) {
+      pairs.push({ outId: exp.id, inId: match.id });
+      usedIds.add(exp.id); usedIds.add(match.id);
+    }
+  });
+  return pairs;
+}
+
+// Count near-match pairs (date within ±2 days, same amount) — surfaced as suggestions, not auto-linked.
+function countNearMatches(unlinkedTransfers) {
+  const expenses = unlinkedTransfers.filter(t => t.direction === 'expense');
+  const incomes  = unlinkedTransfers.filter(t => t.direction === 'income');
+  let count = 0;
+  const usedIds = new Set();
+  expenses.forEach(exp => {
+    if (usedIds.has(exp.id)) return;
+    const match = incomes.find(inc =>
+      !usedIds.has(inc.id) &&
+      inc.amount === exp.amount &&
+      inc.accountId !== exp.accountId &&
+      Math.abs(new Date(inc.date) - new Date(exp.date)) / 86400000 <= 2
+    );
+    if (match) { count++; usedIds.add(exp.id); usedIds.add(match.id); }
+  });
+  return count;
+}
+
 // ─── Excel / CSV import sheet ────────────────────────────────
 const IMPORT_FIELDS = [
   { key: 'date',        label: 'Date' },
@@ -1341,13 +1403,29 @@ function ImportSheet() {
   const [defaultCategoryId, setDefaultCategoryId] = React.useState(state.categories[0]?.id || 'cat-other');
   const [preview,           setPreview]           = React.useState([]);
   const [imported,          setImported]          = React.useState(0);
+  const [autoLinked,        setAutoLinked]        = React.useState(0);
+  const [nearMatch,         setNearMatch]         = React.useState(0);
+  const [skipDuplicates,    setSkipDuplicates]    = React.useState(true);
+  const [duplicatesSkipped, setDuplicatesSkipped] = React.useState(0);
   const [filename,          setFilename]          = React.useState('');
   const [error,             setError]             = React.useState('');
 
   // catId defaults to current defaultCategoryId but can be passed explicitly
   // when called immediately after setDefaultCategoryId (before re-render)
   const buildPreview = (hdrs, rawRows, map, accId, catId = defaultCategoryId) =>
-    rawRows.slice(0, 6).map(r => mapRow(r, map, accId, catId, state.categories)).filter(Boolean);
+    rawRows.slice(0, 6).map(r => {
+      const t = mapRow(r, map, accId, catId, state.categories);
+      if (!t) return null;
+      const norm = s => (s || '').trim().toLowerCase();
+      const isDup = state.transactions.some(ex =>
+        ex.accountId === accId &&
+        ex.direction === t.direction &&
+        ex.date === t.date &&
+        Math.abs(ex.amount - t.amount) < 0.01 &&
+        norm(ex.description) === norm(t.description)
+      );
+      return { ...t, _isDuplicate: isDup };
+    }).filter(Boolean);
 
   const validCount = (rawRows, map, accId) =>
     rawRows.filter(r => mapRow(r, map, accId, defaultCategoryId, state.categories)).length;
@@ -1394,12 +1472,38 @@ function ImportSheet() {
   };
 
   const handleRunImport = () => {
-    // Strip the preview-only _categoryFromFile flag before persisting
-    const txns = rows.map(r => mapRow(r, mapping, accountId, defaultCategoryId, state.categories))
+    // Strip preview-only flags, then pre-assign IDs so auto-link pairs can reference them
+    const baseTxns = rows.map(r => mapRow(r, mapping, accountId, defaultCategoryId, state.categories))
       .filter(Boolean)
       .map(({ _categoryFromFile, ...t }) => t);
-    dispatch({ type: 'IMPORT_BATCH', txns, filename });
-    setImported(txns.length);
+    const now = Date.now();
+    const txnsWithIds = baseTxns.map((t, i) => ({ ...t, id: 'tx-' + (now + i) }));
+
+    // Duplicate detection — filter before further processing if toggle is on
+    const dupIndices = findImportDuplicateIndices(txnsWithIds, state.transactions);
+    const dedupedTxns = skipDuplicates
+      ? txnsWithIds.filter((_, i) => !dupIndices.has(i))
+      : txnsWithIds;
+
+    // Phase 3a: exact-match auto-link pairs
+    const existingUnlinked = state.transactions.filter(t =>
+      t.categoryId === 'cat-transfer' && !t.transferToId &&
+      (t.direction === 'expense' || t.direction === 'income')
+    );
+    const newUnlinked = dedupedTxns.filter(t => t.categoryId === 'cat-transfer');
+    const allUnlinked = [...existingUnlinked, ...newUnlinked];
+    const autoLinkPairs = findAutoLinkPairs(allUnlinked);
+    const autoLinkedIds = new Set(autoLinkPairs.flatMap(p => [p.outId, p.inId]));
+
+    // Phase 3b: count near-matches that couldn't be auto-linked (need manual review)
+    const remainingUnlinked = allUnlinked.filter(t => !autoLinkedIds.has(t.id));
+    const nearMatchCount = countNearMatches(remainingUnlinked);
+
+    dispatch({ type: 'IMPORT_BATCH', txns: dedupedTxns, filename, autoLinkPairs });
+    setAutoLinked(autoLinkPairs.length);
+    setNearMatch(nearMatchCount);
+    setDuplicatesSkipped(skipDuplicates ? dupIndices.size : 0);
+    setImported(dedupedTxns.length);
     setStep(3);
   };
 
@@ -1476,6 +1580,13 @@ function ImportSheet() {
                 </select>
               </div>
             )}
+            <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--c-border)' }}>
+              <div>
+                <span style={{ fontSize: 14, color: 'var(--c-slate)' }}>Skip likely duplicates</span>
+                <div style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginTop: 1 }}>Skips rows already in your ledger</div>
+              </div>
+              <Toggle value={skipDuplicates} onChange={setSkipDuplicates} />
+            </div>
           </Card>
           {/* column map */}
           <Card padding={0}>
@@ -1521,6 +1632,12 @@ function ImportSheet() {
                           background: 'rgba(2,168,185,0.12)', color: 'var(--c-ocean-teal)', fontWeight: 500,
                         }}>from file</span>
                       )}
+                      {t._isDuplicate && (
+                        <span style={{
+                          fontSize: 10, padding: '1px 5px', borderRadius: 999,
+                          background: 'rgba(244,165,53,0.15)', color: 'var(--c-amber)', fontWeight: 500,
+                        }}>duplicate</span>
+                      )}
                     </div>
                   </div>
                   <div className="tnum" style={{ fontSize: 14, fontWeight: 500, flexShrink: 0, color: t.direction === 'income' ? 'var(--c-seafoam)' : 'var(--c-coral)' }}>
@@ -1547,9 +1664,32 @@ function ImportSheet() {
           </div>
           <div style={{ fontSize: 17, color: 'var(--c-deep-ink)', fontWeight: 500 }}>Import complete</div>
           <div style={{ fontSize: 13, color: 'var(--c-slate-mute)', marginTop: 4 }}>
-            {imported} transactions added
-            {filename ? <span> from <strong>{filename}</strong></span> : ''}
+            {imported} transactions added{filename ? <> from <strong>{filename}</strong></> : ''}
           </div>
+          {duplicatesSkipped > 0 && (
+            <div style={{ marginTop: 8, padding: '8px 14px', borderRadius: 10, background: 'rgba(244,165,53,0.10)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="warn" size={14} color="var(--c-amber)" />
+              <span style={{ fontSize: 13, color: 'var(--c-amber)', fontWeight: 500 }}>
+                {duplicatesSkipped} duplicate{duplicatesSkipped !== 1 ? 's' : ''} skipped
+              </span>
+            </div>
+          )}
+          {autoLinked > 0 && (
+            <div style={{ marginTop: 8, padding: '8px 14px', borderRadius: 10, background: 'rgba(3,188,165,0.10)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="swap" size={14} color="var(--c-seafoam)" />
+              <span style={{ fontSize: 13, color: 'var(--c-seafoam)', fontWeight: 500 }}>
+                {autoLinked} transfer pair{autoLinked !== 1 ? 's' : ''} auto-linked
+              </span>
+            </div>
+          )}
+          {nearMatch > 0 && (
+            <div style={{ marginTop: 6, padding: '8px 14px', borderRadius: 10, background: 'rgba(244,165,53,0.10)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="warn" size={14} color="var(--c-amber)" />
+              <span style={{ fontSize: 13, color: 'var(--c-amber)', fontWeight: 500 }}>
+                {nearMatch} transfer{nearMatch !== 1 ? 's' : ''} may need linking — check Money tab
+              </span>
+            </div>
+          )}
           <Button variant="primary" full style={{ marginTop: 20 }} onClick={() => { route.closeSheet(); route.push('ledger'); }}>
             View ledger
           </Button>

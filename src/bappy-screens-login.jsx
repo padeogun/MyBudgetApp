@@ -20,9 +20,16 @@ function LoginScreen({ onSignIn, onGoogleSignIn, gisReady }) {
     setTimeout(() => { setBusy(false); setStage('code'); }, 600);
   };
 
-  const submitCode = () => {
+  const submitCode = async () => {
     setBusy(true);
-    setTimeout(() => { setBusy(false); onSignIn({ email, method: 'email' }); }, 700);
+    try {
+      await onSignIn({ email, method: 'email', code: code.join('') });
+    } catch (e) {
+      // Show error inline — wrong code on an existing account
+      console.warn('[login] email sign-in error:', e?.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleCodeChange = (i, v) => {

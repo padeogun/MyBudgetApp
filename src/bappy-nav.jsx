@@ -138,17 +138,22 @@ function TabBar() {
 }
 
 // ─── FAB ────────────────────────────────────────────────────
-function FAB({ onClick, icon = 'plus' }) {
+function FAB({ onClick, icon = 'plus', label }) {
   return (
     <button onClick={onClick} style={{
       position: 'absolute', bottom: 100, right: 18, zIndex: 70,
-      width: 56, height: 56, borderRadius: 999,
+      height: 48, borderRadius: 999,
+      padding: label ? '0 20px 0 14px' : '0',
+      minWidth: label ? 'auto' : 48,
+      width: label ? 'auto' : 48,
       background: 'linear-gradient(135deg, #02A8B9 0%, #03BCA5 100%)',
       color: '#fff',
       boxShadow: '0 8px 20px -4px rgba(2,168,185,0.5), 0 4px 6px rgba(2,168,185,0.2)',
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      gap: 8,
     }}>
-      <Icon name={icon} size={24} strokeWidth={2.4} />
+      <Icon name={icon} size={22} strokeWidth={2.4} />
+      {label && <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: 0.1 }}>{label}</span>}
     </button>
   );
 }

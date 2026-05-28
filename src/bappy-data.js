@@ -16,8 +16,16 @@ export const DEFAULT_CATEGORIES = [
   { id: 'cat-fun',      name: 'Entertainment',  glyph: 'ticket',  tint: '#F4A535' },
   { id: 'cat-fees',     name: 'Fees & charges', glyph: 'card',    tint: '#7A8181' },
   { id: 'cat-income',   name: 'Income',         glyph: 'arrow-in',tint: '#03BCA5' },
-  { id: 'cat-transfer', name: 'Transfer',       glyph: 'swap',    tint: '#7A8181' },
-  { id: 'cat-other',    name: 'Other',          glyph: 'dot',     tint: '#7A8181' },
+  { id: 'cat-transfer', name: 'Transfer',            glyph: 'swap',    tint: '#7A8181' },
+  { id: 'cat-other',    name: 'Other',              glyph: 'dot',     tint: '#7A8181' },
+  // Extended categories
+  { id: 'cat-phone',    name: 'Phone',              glyph: 'phone',   tint: '#02A8B9' },
+  { id: 'cat-carloan',  name: 'Car Loan Repayment', glyph: 'acc-loan',tint: '#7A8181' },
+  { id: 'cat-ccrepay',  name: 'Credit Card Repayment', glyph: 'card', tint: '#7A8181' },
+  { id: 'cat-loan',     name: 'Loan',               glyph: 'acc-loan',tint: '#E8566A' },
+  { id: 'cat-car',      name: 'Car',                glyph: 'car',     tint: '#F4A535' },
+  { id: 'cat-children', name: 'Children',           glyph: 'child',   tint: '#9C6ADE' },
+  { id: 'cat-shopping', name: 'Shopping',           glyph: 'bag',     tint: '#E8566A' },
 ];
 
 // ─── Default nudge routing / throttling / escalation rules ────

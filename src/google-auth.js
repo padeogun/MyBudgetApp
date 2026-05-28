@@ -75,6 +75,12 @@ export function initGoogleAuth(clientId) {
 export function getToken(silent = false) {
   if (_token && Date.now() < _expiry - 60_000) return Promise.resolve(_token)
 
+  if (!_client) {
+    return Promise.reject(
+      new Error('Google sign-in not initialised. Gmail features require the Google OAuth client. Re-sign-in with Google to use this feature.')
+    )
+  }
+
   return new Promise((resolve, reject) => {
     _client.callback = (resp) => {
       if (resp.error) { reject(new Error(resp.error)); return }

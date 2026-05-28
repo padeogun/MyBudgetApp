@@ -46,7 +46,7 @@ const SCREENS = {
   'net-worth':       () => <NetWorthScreen />,
 }
 
-const FAB_ROUTES = new Set(['home', 'accounts', 'account-detail', 'ledger', 'plan-home'])
+const FAB_ROUTES = new Set(['accounts'])
 
 function SyncBanner() {
   const { syncStatus, syncError, storageError } = useBappy()
@@ -74,9 +74,11 @@ function SyncBanner() {
   if (syncStatus === 'error' && !dismissedSync) return (
     <div style={{ background: 'var(--c-coral-tint)', borderBottom: '1px solid #f5c6cb', padding: '8px 16px', fontSize: 12, color: '#721c24', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
       <div style={{ flex: 1 }}>
-        <strong>Sync failed — data won't carry across devices.</strong>
-        {syncError?.includes('403') || syncError?.includes('disabled') ? (
-          <div style={{ marginTop: 3 }}>A Google API is not enabled on your project. Enable them at <a href="https://console.cloud.google.com/apis/library?project=bappy-app" target="_blank" rel="noreferrer" style={{ color: '#721c24' }}>console.cloud.google.com</a> → search and enable: <strong>Sheets API</strong>, <strong>Drive API</strong>, <strong>Gmail API</strong>.</div>
+        <strong>Cloud sync failed — data won't carry across devices.</strong>
+        {syncError?.includes('permission-denied') || syncError?.includes('PERMISSION_DENIED') ? (
+          <div style={{ marginTop: 3 }}>Firestore permissions error. Check your security rules at <a href="https://console.firebase.google.com/project/bappy-app/firestore/rules" target="_blank" rel="noreferrer" style={{ color: '#721c24' }}>Firebase Console</a>.</div>
+        ) : syncError?.includes('unavailable') || syncError?.includes('Failed to fetch') ? (
+          <div style={{ marginTop: 3 }}>Can't reach Firebase — check your internet connection and try again.</div>
         ) : (
           <div style={{ marginTop: 3 }}>{syncError}</div>
         )}
@@ -112,7 +114,7 @@ function AppBody() {
         key={route.current.name + JSON.stringify(route.current.params)}>
         {screen ? screen() : <div style={{ padding: 24 }}>Unknown route: {route.current.name}</div>}
       </div>
-      {showFAB && <FAB onClick={() => route.openSheet({ kind: 'add' })} />}
+      {showFAB && <FAB onClick={() => route.openSheet({ kind: 'add' })} label="Add transaction" />}
       <TabBar />
       <Sheet open={!!route.sheet} onClose={route.closeSheet}
         title={

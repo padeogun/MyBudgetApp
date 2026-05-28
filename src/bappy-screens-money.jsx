@@ -52,10 +52,46 @@ function AccountsScreen() {
         </Card>
       </div>
 
+      {/* ── Unlinked transfers banner ── */}
+      {(() => {
+        const pending = state.transactions.filter(t =>
+          t.categoryId === 'cat-transfer' && !t.transferToId &&
+          (t.direction === 'expense' || t.direction === 'income')
+        );
+        if (pending.length === 0) return null;
+        return (
+          <div style={{ padding: '8px 16px 0' }}>
+            <div style={{
+              padding: '10px 14px', borderRadius: 12,
+              background: 'rgba(244,165,53,0.10)', border: '1px solid rgba(244,165,53,0.30)',
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <Icon name="swap" size={16} color="var(--c-amber)" style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--c-slate)', fontWeight: 500 }}>
+                {pending.length} transfer{pending.length !== 1 ? 's' : ''} not yet linked
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--c-ocean-teal)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                Tap to link →
+              </span>
+            </div>
+          </div>
+        );
+      })()}
+
       <SectionHeader right={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => route.openSheet({ kind: 'add-account' })} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 999, background: 'var(--c-ocean-teal)', color: '#fff' }}>
-            <Icon name="plus" size={16} strokeWidth={2.5} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={() => route.openSheet({ kind: 'add-account' })}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '5px 11px 5px 8px', borderRadius: 999,
+              border: '1.5px solid var(--c-ocean-teal)',
+              background: '#fff', color: 'var(--c-ocean-teal)',
+              fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+            }}
+          >
+            <Icon name="plus" size={13} strokeWidth={2.5} />
+            Account
           </button>
           <button onClick={() => route.push('ledger')} style={{ fontSize: 12, color: 'var(--c-ocean-teal)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             Ledger <Icon name="chev-right" size={12} />
@@ -103,7 +139,11 @@ function AccountRow({ account, last }) {
       title={account.name}
       subtitle={
         isCard ? `${utilization.toFixed(0)}% used · ${BappyUtil.fmtGBPCompact(available)} left` :
-        isLoan ? `${account.apr}% APR · ${BappyUtil.fmtGBPCompact(account.principal)} principal` :
+        isLoan ? [
+          account.apr ? `${account.apr}% APR` : null,
+          account.repaymentAmount ? `${BappyUtil.fmtGBPCompact(account.repaymentAmount)}/mo` : null,
+          account.endDate ? `ends ${BappyUtil.fmtDateShort(account.endDate)}` : (account.principal ? `${BappyUtil.fmtGBPCompact(account.principal)} principal` : null),
+        ].filter(Boolean).join(' · ') :
         `••••${account.last4}`
       }
       right={
@@ -184,10 +224,13 @@ function AccountDetailScreen() {
               </div>
             )}
             {isLoan && (
-              <div style={{ marginTop: 14, display: 'flex', gap: 14 }}>
-                <KV label="APR" value={account.apr + '%'} dark />
+              <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+                <KV label="APR"       value={account.apr + '%'} dark />
                 <KV label="Principal" value={BappyUtil.fmtGBPCompact(account.principal)} dark />
-                <KV label="Monthly" value={BappyUtil.fmtGBPCompact(account.monthly)} dark />
+                {!!account.repaymentAmount && <KV label="Per payment"  value={BappyUtil.fmtGBP(account.repaymentAmount)} dark />}
+                {!!account.numPayments     && <KV label="Payments"     value={String(account.numPayments)} dark />}
+                {!!account.startDate       && <KV label="Start"        value={BappyUtil.fmtDateShort(account.startDate)} dark />}
+                {!!account.endDate         && <KV label="End"          value={BappyUtil.fmtDateShort(account.endDate)} dark />}
               </div>
             )}
             {account.type === 'savings' && (
@@ -209,7 +252,7 @@ function AccountDetailScreen() {
         {!isCard && !isLoan && (
           <>
             <Button variant="secondary" full icon="swap" onClick={() => route.openSheet({ kind: 'transfer', accountId: account.id })}>Transfer</Button>
-            <Button variant="primary" full icon="plus" onClick={() => route.openSheet({ kind: 'add', accountId: account.id })}>Add</Button>
+            <Button variant="primary" full icon="plus" onClick={() => route.openSheet({ kind: 'add', accountId: account.id })}>Add transaction</Button>
           </>
         )}
       </div>
@@ -337,6 +380,14 @@ function AddTransactionSheet({ initial = {} }) {
   const amt = parseFloat(amount) || 0;
   const acc = state.accounts.find(a => a.id === accountId);
   const toAcc = state.accounts.find(a => a.id === transferToId);
+
+  // Soft warning: same-amount transaction on same account within last 3 days
+  const recentDup = findRecentDuplicate(state.transactions, { accountId, direction, amount: amt, date });
+
+  // Recurring conflict: template or suggestion already covers this payee/amount
+  const recurConflicts = (isRecurring && amt > 0 && direction !== 'transfer')
+    ? findRecurringConflicts(state, { description, amount: amt, accountId, direction, frequency: recurFreq })
+    : null;
 
   // Quick description suggestions based on category
   const SUGG_BY_CAT = {
@@ -539,6 +590,25 @@ function AddTransactionSheet({ initial = {} }) {
         </Card>
       </div>
 
+      {/* ── Recurring conflict warning ── */}
+      {recurConflicts && (recurConflicts.templates.length > 0 || recurConflicts.suggestions.length > 0) && (
+        <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(244,165,53,0.10)', border: '1px solid rgba(244,165,53,0.30)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Icon name="warn" size={15} color="var(--c-amber)" style={{ marginTop: 1, flexShrink: 0 }} />
+            <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5 }}>
+              <strong>Similar recurring template already exists:</strong>
+              {recurConflicts.templates.map(r => (
+                <div key={r.id} style={{ marginTop: 3 }}>↻ {r.payee} · {BappyUtil.fmtGBP(r.amount)} · {r.frequency}</div>
+              ))}
+              {recurConflicts.suggestions.map(s => (
+                <div key={s.id} style={{ marginTop: 3 }}>⚑ Detected: {s.payee} · {BappyUtil.fmtGBP(s.amount)}</div>
+              ))}
+              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--c-slate-mute)' }}>Creating a new template may cause duplicates in your plan.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop: 16 }}>
         <Button variant="primary" full size="lg" onClick={handleSave}
           disabled={amt <= 0 || (direction === 'transfer' && (!transferToId || transferToId === accountId))}>
@@ -546,9 +616,91 @@ function AddTransactionSheet({ initial = {} }) {
             : direction === 'income' ? 'Add income'
             : `Transfer ${amt > 0 ? BappyUtil.fmtGBP(amt) + ' ' : ''}to ${toAcc?.name.split(' ')[0] || 'account'}`}
         </Button>
+
+        {/* ── Recent duplicate soft warning ── */}
+        {recentDup && (
+          <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 12, background: 'rgba(244,165,53,0.10)', border: '1px solid rgba(244,165,53,0.30)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Icon name="warn" size={15} color="var(--c-amber)" style={{ marginTop: 1, flexShrink: 0 }} />
+            <span style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5 }}>
+              A similar <strong>{BappyUtil.fmtGBP(recentDup.amount)}</strong> {recentDup.direction} was posted on <strong>{BappyUtil.fmtDateShort(recentDup.date)}</strong> — possible duplicate.
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+// ─── Duplicate / conflict helpers ────────────────────────────
+// Check state.recurring + state.suggestions for templates that already
+// cover the same payee/amount/account/frequency combination.
+function findRecurringConflicts(state, { description, amount, accountId, direction, frequency }) {
+  const norm = s => (s || '').trim().toLowerCase();
+  const desc = norm(description);
+  const nameMatch = payee => {
+    const p = norm(payee);
+    return p.length > 0 && desc.length > 0 && (p.includes(desc) || desc.includes(p));
+  };
+  const amtMatch = a => Math.abs(a - amount) < 0.01;
+
+  const templates = state.recurring.filter(r => {
+    const freqOk = !frequency || r.frequency === frequency;
+    return freqOk && (nameMatch(r.payee) || (amtMatch(r.amount) && r.accountId === accountId && r.direction === direction));
+  });
+
+  const suggestions = state.suggestions.filter(s =>
+    (s.status === 'pending' || s.status === 'accepted') &&
+    (nameMatch(s.payee) || amtMatch(s.amount))
+  );
+
+  return { templates, suggestions };
+}
+
+// Check if a manual transaction is a near-duplicate of one already in the ledger
+// (same account, direction, amount within £0.01, within 3 days).
+function findRecentDuplicate(transactions, { accountId, direction, amount, date }) {
+  if (!amount || amount <= 0 || direction === 'transfer') return null;
+  const d = new Date(date);
+  d.setDate(d.getDate() - 3);
+  const cutoff = d.toISOString().slice(0, 10);
+  return transactions.find(t =>
+    t.accountId === accountId &&
+    t.direction === direction &&
+    Math.abs(t.amount - amount) < 0.01 &&
+    t.date >= cutoff &&
+    t.date <= date
+  ) || null;
+}
+
+// ─── Transfer linking helpers ─────────────────────────────────
+// Score how well 'candidate' matches 'txn' as the other side of a transfer.
+// Returns -1 if invalid (same account), otherwise 0–5.
+function scoreTransferMatch(txn, candidate) {
+  if (candidate.accountId === txn.accountId) return -1;
+  let score = 0;
+  if (candidate.amount === txn.amount) score += 3;
+  const dayDiff = Math.abs((new Date(candidate.date) - new Date(txn.date)) / 86400000);
+  if (dayDiff === 0) score += 2;
+  else if (dayDiff <= 1) score += 1;
+  else if (dayDiff <= 2) score += 0.5;
+  return score;
+}
+
+// Return the top-5 link candidates for a given unlinked transfer transaction.
+function findTransferCandidates(transactions, txn) {
+  const oppositeDir = txn.direction === 'expense' ? 'income' : 'expense';
+  return transactions
+    .filter(t =>
+      t.id !== txn.id &&
+      t.categoryId === 'cat-transfer' &&
+      !t.transferToId &&
+      t.direction === oppositeDir &&
+      t.accountId !== txn.accountId
+    )
+    .map(t => ({ ...t, _score: scoreTransferMatch(txn, t) }))
+    .filter(t => t._score > 0)
+    .sort((a, b) => b._score - a._score)
+    .slice(0, 5);
 }
 
 const selectStyle = {
@@ -584,6 +736,10 @@ function AddAccountSheet() {
   const [limit, setLimit] = React.useState('');
   const [apr, setApr] = React.useState('');
   const [principal, setPrincipal] = React.useState('');
+  const [repaymentAmount, setRepaymentAmount] = React.useState('');
+  const [numPayments, setNumPayments] = React.useState('');
+  const [startDate, setStartDate] = React.useState('');
+  const [endDate, setEndDate] = React.useState('');
 
   const isCard = type === 'credit_card';
   const isLoan = type === 'loan';
@@ -602,7 +758,14 @@ function AddAccountSheet() {
         balance: isCard || isLoan ? -Math.abs(bal) : bal,
         ...(isCash  && { last4: last4.trim() || '0000' }),
         ...(isCard  && { limit: parseFloat(limit) || 0, apr: parseFloat(apr) || 0 }),
-        ...(isLoan  && { principal: parseFloat(principal) || Math.abs(bal), apr: parseFloat(apr) || 0 }),
+        ...(isLoan  && {
+          principal: parseFloat(principal) || Math.abs(bal),
+          apr: parseFloat(apr) || 0,
+          repaymentAmount: parseFloat(repaymentAmount) || 0,
+          numPayments: parseInt(numPayments, 10) || 0,
+          startDate: startDate || null,
+          endDate: endDate || null,
+        }),
       },
     });
     route.closeSheet();
@@ -681,9 +844,22 @@ function AddAccountSheet() {
                 <span style={{ color: 'var(--c-slate-mute)', fontSize: 14, marginRight: 2 }}>£</span>
                 <input type="number" inputMode="decimal" value={principal} onChange={e => setPrincipal(e.target.value)} placeholder="0" style={{ ...fieldStyle, width: 90 }} />
               </SheetField>
-              <SheetField label="Interest rate %" last>
+              <SheetField label="Interest rate %">
                 <input type="number" inputMode="decimal" value={apr} onChange={e => setApr(e.target.value)} placeholder="0.0" style={{ ...fieldStyle, width: 60 }} />
                 <span style={{ color: 'var(--c-slate-mute)', fontSize: 14 }}>%</span>
+              </SheetField>
+              <SheetField label="Monthly repayment">
+                <span style={{ color: 'var(--c-slate-mute)', fontSize: 14, marginRight: 2 }}>£</span>
+                <input type="number" inputMode="decimal" value={repaymentAmount} onChange={e => setRepaymentAmount(e.target.value)} placeholder="0.00" style={{ ...fieldStyle, width: 90 }} />
+              </SheetField>
+              <SheetField label="Number of payments">
+                <input type="number" inputMode="numeric" value={numPayments} onChange={e => setNumPayments(e.target.value)} placeholder="0" style={{ ...fieldStyle, width: 60 }} />
+              </SheetField>
+              <SheetField label="Start date">
+                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...fieldStyle, width: 'auto' }} />
+              </SheetField>
+              <SheetField label="End date" last>
+                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ ...fieldStyle, width: 'auto' }} />
               </SheetField>
             </>
           )}
@@ -705,6 +881,9 @@ function EditTransactionSheet({ txnId }) {
   if (!txn) return <div style={{ padding: 24, color: 'var(--c-slate-mute)' }}>Transaction not found.</div>;
 
   const isTransfer = txn.direction === 'transfer' || txn.direction === 'transfer-in';
+  // Unlinked: categorised as Transfer but not yet paired with another account's transaction
+  const isUnlinkedTransfer = txn.categoryId === 'cat-transfer' && !txn.transferToId &&
+    (txn.direction === 'expense' || txn.direction === 'income');
 
   const [direction, setDirection] = React.useState(isTransfer ? txn.direction : txn.direction);
   const [amount, setAmount]       = React.useState(txn.amount.toFixed(2));
@@ -712,8 +891,9 @@ function EditTransactionSheet({ txnId }) {
   const [categoryId, setCategoryId] = React.useState(txn.categoryId || 'cat-other');
   const [description, setDescription] = React.useState(txn.description || '');
   const [date, setDate]           = React.useState(txn.date);
-  const [showRecur, setShowRecur] = React.useState(false);
-  const [recurFreq, setRecurFreq] = React.useState('monthly');
+  const [showRecur, setShowRecur]         = React.useState(false);
+  const [recurFreq, setRecurFreq]         = React.useState('monthly');
+  const [recurConflict, setRecurConflict] = React.useState(null);  // { templates, suggestions } | null
 
   const amt = parseFloat(amount) || 0;
   const acc = state.accounts.find(a => a.id === accountId);
@@ -770,6 +950,69 @@ function EditTransactionSheet({ txnId }) {
 
   return (
     <div>
+      {/* ── Unlinked transfer: link panel ── */}
+      {isUnlinkedTransfer && (() => {
+        const candidates = findTransferCandidates(state.transactions, txn);
+        return (
+          <div style={{ marginBottom: 16 }}>
+            <Card padding={12} style={{ background: 'rgba(244,165,53,0.08)', border: '1px solid rgba(244,165,53,0.30)', marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <Icon name="swap" size={16} color="var(--c-amber)" style={{ marginTop: 1, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5 }}>
+                  This transaction is categorised as <strong>Transfer</strong>. Link it to the matching entry in another account to avoid double-counting.
+                </span>
+              </div>
+            </Card>
+            {candidates.length === 0 ? (
+              <div style={{ padding: '10px 14px', fontSize: 13, color: 'var(--c-slate-mute)', textAlign: 'center' }}>
+                No matching transfer transactions found in other accounts yet.
+              </div>
+            ) : (
+              <Card padding={0}>
+                {candidates.map((c, i) => {
+                  const cAcc = state.accounts.find(a => a.id === c.accountId);
+                  return (
+                    <div key={c.id} style={{
+                      padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10,
+                      borderBottom: i < candidates.length - 1 ? '1px solid var(--c-border)' : 'none',
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-deep-ink)' }}>
+                          {cAcc?.name || 'Unknown account'}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--c-slate-mute)', marginTop: 2 }}>
+                          {BappyUtil.fmtDateShort(c.date)} · {c.description}
+                          {c._score >= 5 && <span style={{ marginLeft: 5, fontSize: 10, padding: '1px 5px', borderRadius: 999, background: 'rgba(3,188,165,0.12)', color: 'var(--c-seafoam)', fontWeight: 600 }}>Exact match</span>}
+                        </div>
+                      </div>
+                      <span className="tnum" style={{ fontSize: 14, fontWeight: 500, color: 'var(--c-deep-ink)', flexShrink: 0 }}>
+                        {BappyUtil.fmtGBP(c.amount)}
+                      </span>
+                      <button
+                        onClick={() => {
+                          // outId = expense (the sender), inId = income (the receiver)
+                          const outId = txn.direction === 'expense' ? txn.id : c.id;
+                          const inId  = txn.direction === 'income'  ? txn.id : c.id;
+                          dispatch({ type: 'LINK_TRANSFER', outId, inId });
+                          route.closeSheet();
+                        }}
+                        style={{
+                          padding: '6px 12px', borderRadius: 999, flexShrink: 0,
+                          background: 'var(--c-ocean-teal)', color: '#fff',
+                          fontSize: 13, fontWeight: 600,
+                        }}
+                      >
+                        Link
+                      </button>
+                    </div>
+                  );
+                })}
+              </Card>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Direction */}
       <Segmented
         options={[
@@ -849,20 +1092,48 @@ function EditTransactionSheet({ txnId }) {
               ]}
               value={recurFreq} onChange={setRecurFreq}
             />
+            {/* Conflict warning — shown after first "Set as recurring" attempt */}
+            {recurConflict && (recurConflict.templates.length > 0 || recurConflict.suggestions.length > 0) && (
+              <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(244,165,53,0.10)', border: '1px solid rgba(244,165,53,0.30)' }}>
+                <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                  <Icon name="warn" size={14} color="var(--c-amber)" style={{ marginTop: 1, flexShrink: 0 }} />
+                  <div style={{ fontSize: 12, color: 'var(--c-slate)', lineHeight: 1.5 }}>
+                    <strong>Similar template already exists:</strong>
+                    {recurConflict.templates.map(r => (
+                      <div key={r.id}>↻ {r.payee} · {BappyUtil.fmtGBP(r.amount)} · {r.frequency}</div>
+                    ))}
+                    {recurConflict.suggestions.map(s => (
+                      <div key={s.id}>⚑ Detected: {s.payee} · {BappyUtil.fmtGBP(s.amount)}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <button onClick={() => setShowRecur(false)} style={{
+              <button onClick={() => { setShowRecur(false); setRecurConflict(null); }} style={{
                 flex: 1, padding: '10px', borderRadius: 10,
                 background: 'var(--c-ice-wash)', color: 'var(--c-slate)',
                 fontSize: 13, fontWeight: 500,
               }}>Cancel</button>
               <button onClick={() => {
                 if (amt <= 0) return;
-                // Save any edits to this transaction and mark it as recurring
+                // Check for conflicts on first attempt; allow override on second
+                if (!recurConflict) {
+                  const conflicts = findRecurringConflicts(state, {
+                    description: description || 'Transaction',
+                    amount: amt, accountId, direction, frequency: recurFreq,
+                  });
+                  if (conflicts.templates.length > 0 || conflicts.suggestions.length > 0) {
+                    setRecurConflict(conflicts);
+                    return; // show warning — user must tap again to confirm
+                  }
+                }
+                // No conflict, or user confirmed — proceed
                 dispatch({
                   type: 'UPDATE_TRANSACTION', id: txnId,
                   patch: { amount: amt, direction, accountId, categoryId, description: description || 'Transaction', date, type: 'recurring' },
                 });
-                // Create the recurring template
                 dispatch({
                   type: 'ADD_RECURRING',
                   rec: {
@@ -877,9 +1148,9 @@ function EditTransactionSheet({ txnId }) {
                 route.closeSheet();
               }} style={{
                 flex: 2, padding: '10px', borderRadius: 10,
-                background: 'var(--c-ocean-teal)', color: '#fff',
-                fontSize: 13, fontWeight: 500,
-              }}>Set as recurring</button>
+                background: recurConflict ? 'var(--c-amber)' : 'var(--c-ocean-teal)',
+                color: '#fff', fontSize: 13, fontWeight: 500,
+              }}>{recurConflict ? 'Create anyway' : 'Set as recurring'}</button>
             </div>
           </Card>
         ) : (
@@ -910,12 +1181,16 @@ function EditAccountSheet({ accountId }) {
   const isCash = type === 'current' || type === 'savings';
   const TYPE_LABELS = { current: 'Current account', savings: 'Savings', credit_card: 'Credit card', loan: 'Loan / mortgage' };
 
-  const [name, setName]           = React.useState(account.name);
-  const [balance, setBalance]     = React.useState(String(Math.abs(account.balance)));
-  const [last4, setLast4]         = React.useState(account.last4 || '');
-  const [limit, setLimit]         = React.useState(String(account.limit || ''));
-  const [apr, setApr]             = React.useState(String(account.apr || ''));
-  const [principal, setPrincipal] = React.useState(String(account.principal || ''));
+  const [name, setName]                       = React.useState(account.name);
+  const [balance, setBalance]                 = React.useState(String(Math.abs(account.balance)));
+  const [last4, setLast4]                     = React.useState(account.last4 || '');
+  const [limit, setLimit]                     = React.useState(String(account.limit || ''));
+  const [apr, setApr]                         = React.useState(String(account.apr || ''));
+  const [principal, setPrincipal]             = React.useState(String(account.principal || ''));
+  const [repaymentAmount, setRepaymentAmount] = React.useState(String(account.repaymentAmount || ''));
+  const [numPayments, setNumPayments]         = React.useState(String(account.numPayments || ''));
+  const [startDate, setStartDate]             = React.useState(account.startDate || '');
+  const [endDate, setEndDate]                 = React.useState(account.endDate || '');
 
   const fieldStyle = {
     width: '100%', border: 'none', outline: 'none', background: 'transparent',
@@ -936,7 +1211,14 @@ function EditAccountSheet({ accountId }) {
         balance: isCard || isLoan ? -Math.abs(bal) : bal,
         ...(isCash && { last4: last4.trim() || '0000' }),
         ...(isCard && { limit: parseFloat(limit) || 0, apr: parseFloat(apr) || 0 }),
-        ...(isLoan && { principal: parseFloat(principal) || Math.abs(bal), apr: parseFloat(apr) || 0 }),
+        ...(isLoan && {
+          principal: parseFloat(principal) || Math.abs(bal),
+          apr: parseFloat(apr) || 0,
+          repaymentAmount: parseFloat(repaymentAmount) || 0,
+          numPayments: parseInt(numPayments, 10) || 0,
+          startDate: startDate || null,
+          endDate: endDate || null,
+        }),
       },
     });
     route.closeSheet();
@@ -999,11 +1281,30 @@ function EditAccountSheet({ accountId }) {
                 onChange={e => setPrincipal(e.target.value)} placeholder="0"
                 style={{ ...fieldStyle, width: 90 }} />
             </SheetField>
-            <SheetField label="Interest rate %" last>
+            <SheetField label="Interest rate %">
               <input type="number" inputMode="decimal" value={apr}
                 onChange={e => setApr(e.target.value)} placeholder="0.0"
                 style={{ ...fieldStyle, width: 60 }} />
               <span style={{ color: 'var(--c-slate-mute)', fontSize: 14 }}>%</span>
+            </SheetField>
+            <SheetField label="Monthly repayment">
+              <span style={{ color: 'var(--c-slate-mute)', fontSize: 14, marginRight: 2 }}>£</span>
+              <input type="number" inputMode="decimal" value={repaymentAmount}
+                onChange={e => setRepaymentAmount(e.target.value)} placeholder="0.00"
+                style={{ ...fieldStyle, width: 90 }} />
+            </SheetField>
+            <SheetField label="Number of payments">
+              <input type="number" inputMode="numeric" value={numPayments}
+                onChange={e => setNumPayments(e.target.value)} placeholder="0"
+                style={{ ...fieldStyle, width: 60 }} />
+            </SheetField>
+            <SheetField label="Start date">
+              <input type="date" value={startDate}
+                onChange={e => setStartDate(e.target.value)} style={{ ...fieldStyle, width: 'auto' }} />
+            </SheetField>
+            <SheetField label="End date" last>
+              <input type="date" value={endDate}
+                onChange={e => setEndDate(e.target.value)} style={{ ...fieldStyle, width: 'auto' }} />
             </SheetField>
           </>)}
         </Card>

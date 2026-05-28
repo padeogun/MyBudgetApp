@@ -1,291 +1,221 @@
 # MyBudgetApp — Screen Architecture
 
-A working schema of the screens to design in Figma, derived from the project brief. Intended to lock the inventory and navigation before drawing pixels. Mobile-first; desktop is the same screens reflowed.
+A working schema of the screens as implemented. Mobile-first; desktop is the same screens reflowed.
+
+> **Document status**: reflects the implemented v1 codebase as of May 2026.
 
 ---
 
 ## 1. Navigation model
 
-**Primary nav: 5-tab bottom bar (mobile) / left rail (desktop)**
+### Primary nav: 5-tab bottom bar
 
 | Tab | Purpose | Houses |
-|---|---|---|
+| --- | --- | --- |
 | **Home** | The day-to-day glance | Dashboard cards |
-| **Money** | What I have, what I owe | Accounts + Transactions |
+| **Money** | What I have, what I owe | Accounts + Ledger |
 | **Plan** | What's set up and pending | Budgets + Recurring templates + Suggestions |
 | **Insights** | What the data says | Reports + Forecast + Simulation |
-| **More** | Everything else | Settings + Backup + About |
+| **More** | Everything else | Settings + Import + Backup + About |
 
-**Persistent header elements**
-- **Bell icon** → Nudge inbox (badge with unread count). Surfaces from every screen.
-- **+ button** (FAB on mobile) → Add Transaction (the most-used action).
+### Persistent elements
 
-Nudges intentionally live in the header rather than a primary tab — they should feel like an ambient layer, not a destination.
+- **Bell icon** — Nudge inbox (badge with unread count). Surfaces from every screen.
+- **＋ Add transaction FAB** — Floating pill button, bottom-right. Appears on the **Money / Accounts screen only**. Label: "＋ Add transaction". Solid teal gradient.
+- **＋ Account button** — Outlined teal pill ("＋ Account") in the Accounts section header. Distinct from the FAB: white background, teal border, smaller.
 
 ---
 
 ## 2. Screen map
 
-```mermaid
-flowchart TD
-    %% Onboarding
-    SignIn([Sign-in<br/>Google OAuth])
-    FirstRun([First-run Welcome])
-    Import([Excel Import Wizard])
-    BulkReview([Bulk Recurrence Review])
+```text
+Auth
+  └── Sign-in (Google or email/password)
+      └── [auto-restore if previously signed in]
 
-    SignIn --> FirstRun
-    FirstRun --> Import
-    Import --> BulkReview
-    BulkReview --> Home
+Home tab
+  └── Dashboard
 
-    %% Home tab
-    Home{{Home / Dashboard}}
+Money tab
+  ├── Accounts (main screen — FAB lives here)
+  │   ├── [＋ Account pill] → Add Account sheet
+  │   └── Account row → Account Detail
+  │       ├── [Simulate payoff] → Per-Debt Simulation (Insights)
+  │       ├── [Transfer] → Transfer sheet
+  │       └── [Add transaction] → Add Transaction sheet
+  ├── Ledger (full transaction list, all accounts)
+  │   └── Transaction row → Edit Transaction sheet
+  │       └── [Link as transfer] panel (if unlinked Transfer category)
+  └── [FAB] → Add Transaction sheet
 
-    %% Money tab
-    subgraph MoneyTab[Money tab]
-        AcctList[Accounts List]
-        AcctDetail[Account Detail]
-        TxnList[Transactions List]
-        TxnDetail[Transaction Detail]
-        TxnAdd[Add Transaction]
-        TxnTransfer[Transfer Flow]
-    end
+Plan tab
+  ├── Plan home
+  │   ├── Budgets → Budget List
+  │   ├── Recurring → Recurring Templates List
+  │   └── Detected patterns → Suggestions Inbox
+  ├── Budget List → Budget Detail
+  ├── Recurring Templates List → Recurring Template Detail
+  └── Suggestions Inbox (accept / dismiss detected patterns)
 
-    %% Plan tab
-    subgraph PlanTab[Plan tab]
-        BudgetList[Budgets List]
-        BudgetDetail[Budget Detail]
-        RecList[Recurring Templates]
-        RecDetail[Template Detail]
-        SuggInbox[Suggestions Inbox]
-    end
+Insights tab
+  ├── Insights home
+  │   ├── Spending donut (this month by category)
+  │   ├── Cash flow sparkline
+  │   └── Navigation tiles → detail screens below
+  ├── Transaction Summaries (6-month income vs expenses bar chart)
+  ├── Cash Flow Forecast (area chart + per-pay-cycle table)
+  ├── Per-Debt Simulation (balance curve, what-if controls)
+  ├── All-Debts Comparison (Avalanche / Snowball / Even-spread)
+  └── Net Worth (grouped bar + net worth line)
 
-    %% Insights tab
-    subgraph InsightsTab[Insights tab]
-        InsightsHome[Insights Home]
-        Available[Available to Spend]
-        Upcoming[Upcoming Payments]
-        Summaries[Transaction Summaries]
-        ByType[Expenses by Type]
-        ByCat[Expenses by Category]
-        Forecast[Cash Flow Forecast]
-        DebtPer[Per-Debt Simulation]
-        DebtAll[All-Debts Comparison]
-    end
-
-    %% Nudges (header)
-    NudgeInbox[Nudge Inbox]
-    NudgeDetail[Nudge Detail]
-
-    %% More tab
-    subgraph MoreTab[More tab]
-        MoreHome[More Home]
-        SetGeneral[General + Pay Schedule]
-        SetCategories[Categories]
-        SetNudgePrefs[Nudge Preferences]
-        SetRules[Nudge Rules Editor]
-        SetQuiet[Quiet Hours]
-        SetEmail[Email Channel]
-        SetPush[Web Push Devices]
-        SetBackup[Backup / Export]
-    end
-
-    %% Primary navigation
-    Home --> MoneyTab
-    Home --> PlanTab
-    Home --> InsightsTab
-    Home --> MoreTab
-    Home -.bell.-> NudgeInbox
-    Home -.FAB.-> TxnAdd
-
-    %% Money intra-flow
-    AcctList --> AcctDetail
-    AcctDetail --> TxnList
-    TxnList --> TxnDetail
-    TxnList -.add.-> TxnAdd
-    TxnAdd --> TxnTransfer
-
-    %% Plan intra-flow
-    BudgetList --> BudgetDetail
-    RecList --> RecDetail
-    SuggInbox -.accept.-> RecDetail
-
-    %% Insights intra-flow
-    InsightsHome --> Available
-    InsightsHome --> Upcoming
-    InsightsHome --> Summaries
-    InsightsHome --> ByType
-    InsightsHome --> ByCat
-    InsightsHome --> Forecast
-    InsightsHome --> DebtPer
-    InsightsHome --> DebtAll
-    DebtPer --> DebtAll
-
-    %% Nudges
-    NudgeInbox --> NudgeDetail
-    NudgeDetail -.deep-link.-> AcctDetail
-    NudgeDetail -.deep-link.-> BudgetDetail
-    NudgeDetail -.deep-link.-> SuggInbox
-
-    %% More intra-flow
-    MoreHome --> SetGeneral
-    MoreHome --> SetCategories
-    MoreHome --> SetNudgePrefs
-    SetNudgePrefs --> SetRules
-    MoreHome --> SetQuiet
-    MoreHome --> SetEmail
-    MoreHome --> SetPush
-    MoreHome --> SetBackup
+More tab
+  ├── More home
+  ├── Profile (account info, sign out)
+  ├── General (pay schedule, forecast horizon, low-balance floor)
+  ├── Preferences (detection threshold, quiet hours, email digest)
+  ├── Categories (manage default + custom categories)
+  ├── Nudge types (per-type enable + severity override)
+  ├── Nudge rules (routing / throttling / escalation rules editor)
+  ├── Email channel (address, digest mode)
+  ├── Web Push devices (subscriptions, device labels)
+  └── Backup / Export (export to XLSX, pull from cloud, push to cloud)
+      └── Import wizard (Upload → Map → Preview → Done)
 ```
-
-Render this anywhere mermaid is supported — GitHub markdown viewer, VS Code with the Mermaid extension, or paste into [mermaid.live](https://mermaid.live) for an SVG export.
 
 ---
 
 ## 3. Screen inventory
 
-Grouped by area. Each row is a screen to create as a Figma frame. The "key content" column lists the structural elements — not a design spec, just what data lives there.
+Grouped by area. 🖼️ = full screen, 📋 = bottom sheet, ⚙️ = settings sub-screen.
 
-### 3.1 Onboarding (one-time)
+### 3.1 Auth
 
-| Screen | Purpose | Key content |
-|---|---|---|
-| Sign-in | Google OAuth entry | Google sign-in button, app name, one-line tagline |
-| First-run Welcome | Set expectations, pick currency | Welcome message, currency confirm (GBP), pay-schedule setup (frequency + anchor date) |
-| Excel Import Wizard | Map and ingest Excel files | Step 1: upload Transactions XLSX. Step 2: column mapping (Excel column → app field). Step 3: dry-run preview with row count + warnings. Step 4: confirm. Repeat for Accounts XLSX |
-| Bulk Recurrence Review | Triage suggestions surfaced by §6.7 | List of `RecurrenceSuggestion` rows with confidence, payee, amount, frequency. Per-row: Accept / Edit then accept / Dismiss |
+| | Screen | Notes |
+| --- | --- | --- |
+| 🖼️ | **Sign-in** | Google sign-in button + email/password form. Branded splash with Bappy logo. |
 
 ### 3.2 Home
 
-| Screen | Purpose | Key content |
-|---|---|---|
-| Dashboard | The morning glance | Cards: Available to spend (until next pay day), Net position, Upcoming payments (next 7 days), Latest nudges (top 3), Budgets-at-risk, Debt-free date countdown. Cards reorderable (later) |
+| | Screen | Notes |
+| --- | --- | --- |
+| 🖼️ | **Dashboard** | Graphic cards stacked vertically. Cards: Available to spend, Net position, Upcoming payments (next 7 days), Recent activity (last 5 transactions), Cash flow sparkline, Debt-free date countdown. |
 
 ### 3.3 Money tab
 
-| Screen | Purpose | Key content |
-|---|---|---|
-| Accounts List | All accounts at a glance | Grouped by type (current / savings / credit card / loan). Per row: name, current balance, available credit for cards. Aggregate net position at top |
-| Account Detail | One account deep | Header: name, type, current balance, APR & credit limit (credit cards), APR & principal (loans). Tabs: Transactions / Settings. Recent transactions inline |
-| Transactions List | Browse and filter activity | Filters: account, category, type, date range, search. Grouped by date. Per row: payee, category, amount, account |
-| Transaction Detail | Single transaction view/edit | All fields editable. Show `recurrence_template_id` link if recurring. Status pill (scheduled / posted / cleared) |
-| Add Transaction | Modal/sheet — primary action | Date, amount, direction, account, category, type, description, recurring toggle. Compact and fast |
-| Transfer Flow | Move between accounts | Source account, destination account, amount, date, description. Creates paired transactions with same `transfer_id` |
+| | Screen | Notes |
+| --- | --- | --- |
+| 🖼️ | **Accounts** | Grouped by type (Cash / Savings / Credit cards / Loans). Aggregate net position at top (dark card). Amber banner if unlinked Transfer transactions exist. "＋ Account" outlined pill + "Ledger" link in section header. FAB ("＋ Add transaction") fixed bottom-right. |
+| 🖼️ | **Account Detail** | Dark header: name, type tag, last 4, balance. Credit card: utilisation bar, APR, min repayment. Loan: APR, principal, per-payment, payments, start/end dates. Savings: AER. Actions: Simulate payoff (cards/loans), Transfer, Add transaction. Recent transactions below. |
+| 🖼️ | **Ledger** | All transactions, reverse-chronological, grouped by date. Filter chips by account. Tap row → Edit Transaction sheet. |
+| 📋 | **Add Transaction** | Direction segmented (Expense / Income / Transfer). Numpad amount entry. Fields: account, category, date, recurring toggle + frequency. Description with quick-suggestion chips. Soft amber warning if near-duplicate exists in last 3 days. Amber conflict warning if recurring template already exists (shows matching templates; "Create anyway" on second tap). |
+| 📋 | **Edit Transaction** | Same form as Add, pre-filled. For linked transfers: simplified view (description + date only). For **unlinked Transfer-category** transactions: amber "Link as transfer" panel at top showing ranked candidates from other accounts — tap Link to pair them. "↻ Mark as recurring" expands inline with conflict check. |
+| 📋 | **Add Account** | Type segmented (Current / Savings / Credit card / Loan). Type-specific fields. Loan fields: outstanding balance, original principal, interest rate %, monthly repayment, number of payments, start date, end date. |
+| 📋 | **Edit Account** | Same as Add, pre-filled. Type badge shown (read-only). Delete account (with transaction count warning). |
+| 📋 | **Transfer** | From / To account selectors, amount, date, note. Creates paired transfer transactions. |
 
 ### 3.4 Plan tab
 
-| Screen | Purpose | Key content |
-|---|---|---|
-| Budgets List | Budgets at a glance | Per budget: scope (overall / category), period, spent / limit, progress bar. New-budget button |
-| Budget Detail | Single budget vs spend | Progress bar, spend breakdown, trend vs prior periods, edit budget |
-| Recurring Templates | All auto-posting templates | Grouped by frequency or by account. Per row: payee, amount, next due date, source (manual / detected), active toggle |
-| Template Detail | Single template edit | All fields. Linked transactions list. Skip-next-instance button |
-| Suggestions Inbox | Pending suggestions to triage | Same as bulk review screen but for incremental incoming. Empty state when none pending |
+| | Screen | Notes |
+| --- | --- | --- |
+| 🖼️ | **Plan home** | Summary tiles: active templates, budgets, subscriptions total, due this week. Detected patterns card if pending suggestions. |
+| 🖼️ | **Budget List** | Progress bars per budget. |
+| 🖼️ | **Budget Detail** | Spend vs limit, transactions counted toward it. |
+| 📋 | **Add / Edit Budget** | Period + scope (overall vs category) + amount. |
+| 🖼️ | **Recurring Templates** | Grouped by frequency (weekly / monthly / annually). Per row: payee, amount, next due, source badge (manual / detected), active toggle, Mark paid button. |
+| 🖼️ | **Suggestions Inbox** | Pending detected patterns. Per card: confidence %, payee, amount, frequency. Accept → creates template. Dismiss → suppresses. |
 
 ### 3.5 Insights tab
 
-| Screen | Purpose | Key content |
-|---|---|---|
-| Insights Home | Index of available reports | Grid of cards, each a preview of its own report screen |
-| Available to Spend | Detailed view of the dashboard card | Headline figure, contributing outflows list, days to next pay day |
-| Upcoming Payments | All scheduled outflows ahead | Tabs: Tomorrow / This week / This month / Annual. Per row: payee, amount, account, date |
-| Transaction Summaries | Aggregated activity over time | Toggle: day / week / month / year. Bar or line chart + table |
-| Expenses by Type | Split by transaction type | Donut + table. Direct debits, card repayments, loan repayments, regular upkeep, other |
-| Expenses by Category | Split by category | Donut + table. Drill into each category opens filtered Transactions List |
-| Cash Flow Forecast | Forward projection per §7.8 | Line chart (projected balance over horizon). Per-pay-cycle table below. Liquidity-alert markers on chart. What-if input |
-| Per-Debt Simulation | One debt drilldown per §7.7 | Balance curve, payoff date, total interest. What-if controls: extra £/month, lump sum, change scheduled repayment |
-| All-Debts Comparison | Strategy comparison per §7.7 | Side-by-side: Avalanche / Snowball / Even-spread / Custom. Per strategy: debt-free date, total interest, stacked balance curve |
+| | Screen | Notes |
+| --- | --- | --- |
+| 🖼️ | **Insights home** | Spending donut (current month by category, top 5 legend). Navigation tiles. |
+| 🖼️ | **Transaction Summaries** | 6-month bar chart (income vs expenses) + net line overlay. |
+| 🖼️ | **Cash Flow Forecast** | Area chart — projected balance over horizon. Per-pay-cycle table. Floor line marker. |
+| 🖼️ | **Per-Debt Simulation** | Balance curve, payoff date, total interest. What-if: extra £/month, lump sum. "Simulate payoff" deep-links here from Account Detail. |
+| 🖼️ | **All-Debts Comparison** | Stacked balance curves for Avalanche / Snowball / Even-spread strategies. Debt-free date per strategy. |
+| 🖼️ | **Net Worth** | Grouped bar chart (assets up, liabilities down) + net worth line overlay. 6-month view. |
 
-### 3.6 Nudges (header bell, not a tab)
+### 3.6 More tab
 
-| Screen | Purpose | Key content |
-|---|---|---|
-| Nudge Inbox | All nudges, sortable | Tabs: New / Seen / Acted / Dismissed. Per row: severity dot, type icon, title, body, time, action button |
-| Nudge Detail | Single nudge with full context | Title, body, severity, context JSON rendered nicely, action button (deep-link to relevant screen), dismiss, mark-acted |
+| | Screen | Notes |
+| --- | --- | --- |
+| 🖼️ | **More home** | Grouped list: Profile, Notifications, Data, About. Sync status banner at top. |
+| ⚙️ | **Profile** | Google account, sign-out. |
+| ⚙️ | **General** | Pay frequency, anchor day, currency (display), forecast horizon, week start. |
+| ⚙️ | **Preferences** | Detection confidence threshold, low-balance floor. |
+| ⚙️ | **Categories** | List: default + custom. Add / rename / delete. |
+| ⚙️ | **Nudge types** | Per-type enabled toggle + severity override. |
+| ⚙️ | **Nudge rules** | Three sections: Routing / Throttling / Escalation. Per rule: name, priority, when/then JSON, active toggle. Add/edit/delete rules. |
+| ⚙️ | **Email channel** | Email address, digest mode (immediate / daily morning / weekly). |
+| ⚙️ | **Web Push devices** | Subscribed devices list, label, last used, revoke. Subscribe this device CTA. |
+| ⚙️ | **Backup / Export** | Last synced timestamp. Export to XLSX. Push to cloud / Pull from cloud (manual sync). |
+| 📋 | **Import wizard** | Step 0: file picker (.xlsx, .xls, .csv). Step 1: column mapping (date, description, amount, debit/credit, category) + account selector + default category + "Skip likely duplicates" toggle. Step 2: preview (first 6 rows, "from file" and "duplicate" badges). Step 3: done — shows transactions added, duplicates skipped, transfer pairs auto-linked, near-matches to review. |
 
-### 3.7 More tab
+### 3.7 Global sheets (accessible from multiple screens)
 
-| Screen | Purpose | Key content |
-|---|---|---|
-| More Home | Index of settings + utilities | Grouped list: Profile, Notifications, Data, About |
-| General + Pay Schedule | Core settings | Pay frequency, anchor date, currency (display only), reporting week start, forecast horizon days, detection confidence threshold |
-| Categories | Manage categories | List with default + custom. Add / rename / delete (with reassign-existing flow) |
-| Nudge Preferences | Per-type enable & severity | Table: nudge type | enabled toggle | severity override |
-| Nudge Rules Editor | Full rules engine UI | Three sections (Routing / Throttling / Escalation). Per rule: name, priority, when (JSON-ish editor), then (action), active toggle, drag-to-reorder. Add-rule button per axis |
-| Quiet Hours | When to suppress non-alerts | Start time, end time, days-of-week selector |
-| Email Channel | Email delivery config | Email address (defaults to Google), digest mode (immediate / daily morning / weekly), digest time |
-| Web Push Devices | Manage subscribed devices | List of `PushSubscription` rows: device label (editable), created date, last used, active toggle, revoke button. "Subscribe this device" CTA if not subscribed |
-| Backup / Export | Data exports | Last backup timestamp, "Export now" button, download recent JSON snapshots list |
+| | Sheet | Notes |
+| --- | --- | --- |
+| 📋 | **Nudge inbox** | Accessible from bell icon on any screen. Tabs: New / Seen / Dismissed. Per row: severity dot, type icon, title, body, timestamp, action button. |
 
 ---
 
-## 4. Key user flows to wireframe first
+## 4. Key behaviours by screen
 
-Five flows worth designing end-to-end before fanning out to every screen. These exercise the model.
+### Accounts screen — transfer linking banner
 
-1. **First-run import** — Sign-in → First-run Welcome → Excel Import Wizard → Bulk Recurrence Review → Dashboard. Stress-tests the column-mapping UI and the suggestion-triage UX.
-2. **Add a transaction** — Dashboard → FAB → Add Transaction → return to Dashboard (or wherever launched from). Should be ≤4 taps for the common case.
-3. **Respond to a nudge** — Bell → Nudge Inbox → Nudge Detail → deep-link to action (e.g. Budget Detail or Suggestions Inbox) → resolve → back. Tests the deep-link surface.
-4. **Run a debt what-if** — Insights → Per-Debt Simulation → adjust extra-£/month slider → see updated payoff date → save scenario or just observe. Tests the live-recalculation chart.
-5. **Add a nudge rule** — More → Nudge Preferences → Nudge Rules Editor → add a routing rule → confirm priority placement → save. Tests whether the rules editor is actually usable or needs simplification.
+When any transaction has `categoryId: 'cat-transfer'` and `transferToId: null`, an amber banner appears below the summary card:
 
-Get these five right first; the other 25 screens are mostly variations on patterns these flows establish.
+> "N transfers not yet linked — Tap to link →"
+
+Tapping any Transfer-category transaction in the Ledger opens the Edit sheet, which shows ranked link candidates.
+
+### Edit Transaction — unlinked transfer linking
+
+The link panel appears at the top of the edit form (above the direction segmented control) whenever `categoryId === 'cat-transfer'` and `transferToId` is null. It shows up to 5 candidates from other accounts, ranked by:
+
+- Exact amount match (+3 pts)
+- Same date (+2 pts), ±1 day (+1 pt), ±2 days (+0.5 pt)
+
+Candidates with a perfect score show an "Exact match" badge. Tapping Link dispatches `LINK_TRANSFER` — no balance adjustment needed (import already applied correct deltas).
+
+### Import — duplicate detection
+
+The "Skip likely duplicates" toggle (default ON) filters rows where all of these match an existing transaction: account, date, direction, amount (±£0.01), description (case-insensitive). The Step 3 done screen reports how many were skipped.
+
+### Recurring — conflict guard (two-tap confirm)
+
+Before creating a new recurring template, the app checks for payee name overlap or same amount + account + direction in existing templates and pending suggestions. On the first tap of "Set as recurring", if a conflict is found, the button turns amber and changes label to "Create anyway". The second tap proceeds.
 
 ---
 
-## 5. Suggested Figma file structure
+## 5. UI components
 
-Mirror the tab structure so navigation is obvious when you open the file later.
-
-```
-MyBudgetApp/
-├── 00 — Foundations
-│   ├── Colors
-│   ├── Typography
-│   ├── Spacing & grid
-│   ├── Components (buttons, cards, list rows, modals, charts)
-│   └── Icons
-├── 01 — Onboarding
-├── 02 — Home
-├── 03 — Money
-├── 04 — Plan
-├── 05 — Insights
-├── 06 — Nudges
-├── 07 — More (Settings)
-├── 08 — Empty / Loading / Error states
-└── 09 — Flows (the five key flows from §4, as connected prototypes)
-```
-
-Couple of practical notes:
-- Build **Foundations** first. Card, list row, header, FAB, bottom tab bar, modal — these recur on nearly every screen. Designing them once saves a lot of rework.
-- Mobile width: 390px (iPhone 14/15) is a reasonable canonical width. Add a desktop frame (1280–1440px) for one or two screens to confirm the responsive intent — don't reflow every screen until the mobile pass is locked.
-- The orbital token file you have already maps onto Foundations directly (colours, typography, spacing, radii) — design tokens first, components second.
+| Component | Where used |
+| --- | --- |
+| Card (light) | Dashboard tiles, form groups, transaction rows |
+| Card (dark) | Account detail header, net position summary |
+| Tag | Account type, transaction direction, source badge |
+| ProgressBar | Budget utilisation, credit card utilisation |
+| Donut | Spending by category, budget health |
+| AreaChart | Cash flow forecast |
+| BarChart | Transaction summaries |
+| DebtCurve | Per-debt simulation |
+| StackedDebtChart | All-debts comparison |
+| Sparkline | Dashboard mini charts |
+| Segmented | Direction picker, frequency picker, account type picker |
+| Toggle | Recurring on/off, skip-duplicates, rule active |
+| Sheet (bottom modal) | All add/edit actions |
+| FAB (extended pill) | "＋ Add transaction" — Accounts screen only |
+| EmptyState | No accounts, no transactions, no budgets, suggestions inbox zero |
+| SyncBanner | Firestore sync status — shown at top of app when syncing / error |
 
 ---
 
 ## 6. Modal vs full-screen guidance
 
-Some judgement calls worth making once and applying consistently:
-
-| Pattern | When to use | Examples here |
-|---|---|---|
-| **Full screen** | Distinct destination; user reasons about it on its own | Dashboard, lists, details |
-| **Sheet (bottom modal)** | Quick action that returns to context | Add Transaction, Transfer, edit-template-amount |
-| **Dialog (centred modal)** | Confirmation, single decision | Delete confirm, dismiss-nudge confirm, restore-from-backup |
-| **Inline edit** | Trivial single-field change without losing context | Rename category, toggle template active |
-
-Add Transaction as a **sheet** rather than a full screen is the single biggest UX decision here — it dictates how fast the most common action feels.
-
----
-
-## 7. What this doesn't cover (yet)
-
-Deliberately deferred until the inventory is approved:
-
-- **Per-screen wireframes** — what each frame actually looks like, beyond the content cues above. Natural next step.
-- **Component library spec** — exact props, states, and variants for cards, rows, charts.
-- **Responsive desktop layout decisions** — which mobile screens become two-pane on desktop (probably Money and Insights), which stay single-pane.
-- **Empty / loading / error states** — the third dimension. One placeholder page for these in §08; populate as you build each screen.
-- **Accessibility passes** — contrast, tap targets, screen-reader labels. Worth a dedicated review once the visual style is set.
-
+| Pattern | When to use | Examples |
+| --- | --- | --- |
+| **Full screen** | Distinct destination; user reasons about it on its own | Dashboard, lists, details, report screens |
+| **Sheet (bottom modal)** | Quick action that returns to context | Add/edit transaction, add/edit account, import wizard, transfer |
+| **Dialog (centred modal)** | Confirmation, single decision | Delete account, delete transaction, undo import |
+| **Inline expand** | Trivial single-field change without losing context | Mark as recurring expander, recurring frequency selector |

@@ -1,11 +1,8 @@
 import React from 'react'
 import { BAPPY_SEED } from './bappy-data.js'
-import { initGoogleAuth, getToken, getGoogleProfile, revokeToken } from './google-auth.js'
-import { getOrCreateSpreadsheet, readAll, writeAll } from './gsheets.js'
+import { signInWithGoogle, signInWithEmail, signOut as fbSignOut, onAuthChange, normaliseUser } from './firebase-auth.js'
+import { readUserState, writeUserState, subscribeUserState } from './firebase-db.js'
 import * as Storage from './bappy-storage.js'
-
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
-const SHEET_KEY = 'bappy.sheetId'
 
 // ─── Internal helpers ─────────────────────────────────────────
 
@@ -250,15 +247,35 @@ function bappyReducerCore(state, action) {
     // Bulk import — records group for rollback
     case 'IMPORT_BATCH': {
       const now = Date.now()
-      const tagged = action.txns.map((t, i) => ({ ...t, id: 'tx-' + (now + i) }))
+      // Honour pre-assigned IDs (set by handleRunImport so auto-link pairs can reference them)
+      const tagged = action.txns.map((t, i) => ({ ...t, id: t.id || ('tx-' + (now + i)) }))
       const deltas = {}
       tagged.forEach(t => {
         const d = t.direction === 'income' ? t.amount : -t.amount
         deltas[t.accountId] = (deltas[t.accountId] || 0) + d
       })
+      // Apply exact-match auto-link pairs supplied by the import UI.
+      // Direction changes don't affect balance — deltas above already reflect the correct
+      // income/expense net per account, and transfer/transfer-in have the same net effect.
+      let finalTxns = [...state.transactions, ...tagged]
+      if (action.autoLinkPairs?.length) {
+        const usedIds = new Set()
+        action.autoLinkPairs.forEach(({ outId, inId }) => {
+          if (usedIds.has(outId) || usedIds.has(inId)) return
+          const outTxn = finalTxns.find(t => t.id === outId)
+          const inTxn  = finalTxns.find(t => t.id === inId)
+          if (!outTxn || !inTxn) return
+          usedIds.add(outId); usedIds.add(inId)
+          finalTxns = finalTxns.map(t => {
+            if (t.id === outId) return { ...t, direction: 'transfer',    transferToId: inTxn.accountId,  categoryId: 'cat-transfer', transferLinked: true }
+            if (t.id === inId)  return { ...t, direction: 'transfer-in', transferToId: outTxn.accountId, categoryId: 'cat-transfer', transferLinked: true }
+            return t
+          })
+        })
+      }
       return {
         ...state,
-        transactions: [...state.transactions, ...tagged],
+        transactions: finalTxns,
         accounts: state.accounts.map(a =>
           deltas[a.id] !== undefined ? { ...a, balance: +(a.balance + deltas[a.id]).toFixed(2) } : a),
         lastImport: { ids: tagged.map(t => t.id), count: tagged.length, date: new Date().toISOString().slice(0, 10), filename: action.filename || '' },
@@ -324,6 +341,23 @@ function bappyReducerCore(state, action) {
       })
       const idsToRemove = new Set([action.id, ...(pairedId ? [pairedId] : [])])
       return { ...state, accounts, transactions: state.transactions.filter(t => !idsToRemove.has(t.id)) }
+    }
+
+    // Link two imported transfer-category transactions retroactively.
+    // No balance recalculation needed: the import already applied correct income/expense
+    // deltas, and transfer/transfer-in have the identical net balance effect.
+    case 'LINK_TRANSFER': {
+      const outTxn = state.transactions.find(t => t.id === action.outId)
+      const inTxn  = state.transactions.find(t => t.id === action.inId)
+      if (!outTxn || !inTxn) return state
+      return {
+        ...state,
+        transactions: state.transactions.map(t => {
+          if (t.id === action.outId) return { ...t, direction: 'transfer',    transferToId: inTxn.accountId,  categoryId: 'cat-transfer', transferLinked: true }
+          if (t.id === action.inId)  return { ...t, direction: 'transfer-in', transferToId: outTxn.accountId, categoryId: 'cat-transfer', transferLinked: true }
+          return t
+        }),
+      }
     }
 
     case 'UPDATE_TRANSACTION': {
@@ -481,13 +515,12 @@ export function BappyProvider({ children }) {
   const [syncError,  setSyncError]  = React.useState(null)
   const [lastSynced, setLastSynced] = React.useState(null)    // ISO timestamp of last successful sync
   const [storageError, setStorageError] = React.useState(null) // local storage write error
-  const tokenRef     = React.useRef(null)
-  const sheetIdRef   = React.useRef(localStorage.getItem(SHEET_KEY))
+  const uidRef       = React.useRef(null)    // Firebase UID — set by BappyAuthProvider on sign-in
   const writeTimer   = React.useRef(null)
   const saveTimer    = React.useRef(null)
-  const skipNextSync = React.useRef(false)  // prevent write-back after a remote merge
-  const lastWriteRef = React.useRef(0)      // timestamp of last successful Sheets write
-  // Always-current state ref — used by pushToSheets so the callback never stales
+  const skipNextSync = React.useRef(false)   // prevent write-back after a remote merge
+  const lastWriteRef = React.useRef(0)       // timestamp of last successful Firestore write
+  // Always-current state ref — used by push/pull callbacks so they never close over stale state
   const stateRef     = React.useRef(state)
   React.useEffect(() => { stateRef.current = state }, [state])
 
@@ -532,24 +565,23 @@ export function BappyProvider({ children }) {
     return () => clearTimeout(saveTimer.current)
   }, [state])
 
-  // Debounced write to Google Sheets (triggered by every state change)
+  // ── Debounced write to Firestore on every state change ──
+  // Only fires when a user is signed in (uidRef.current is set).
+  // Debounced 1.5 s to batch rapid sequential dispatches (e.g. import).
   React.useEffect(() => {
-    if (!tokenRef.current || !sheetIdRef.current) return
+    if (!uidRef.current) return
     if (skipNextSync.current) { skipNextSync.current = false; return }
     clearTimeout(writeTimer.current)
     writeTimer.current = setTimeout(async () => {
       setSyncStatus('syncing')
       try {
-        const token = await getToken(true)
-        tokenRef.current = token
-        await writeAll(token, sheetIdRef.current, state)
+        await writeUserState(uidRef.current, stateRef.current)
         setSyncStatus('idle')
         setSyncError(null)
-        const now = new Date().toISOString()
-        setLastSynced(now)
+        setLastSynced(new Date().toISOString())
         lastWriteRef.current = Date.now()
       } catch (err) {
-        console.warn('Sheets sync error:', err)
+        console.warn('[bappy] Firestore write error:', err)
         setSyncStatus('error')
         setSyncError(err?.message || String(err))
       }
@@ -557,40 +589,49 @@ export function BappyProvider({ children }) {
     return () => clearTimeout(writeTimer.current)
   }, [state])
 
-  // Load from Sheets and merge — used at sign-in and on manual pull.
+  // Load from Firestore and merge — used at sign-in and on manual pull.
   //
   // Conflict resolution (unless force=true):
   //  • remote newer  → apply MERGE_REMOTE (remote wins)
-  //  • local newer   → push local to Sheets (local wins); no state change
-  //  • both at zero  → if local has data, push; otherwise apply MERGE_REMOTE
+  //  • local newer   → push local to Firestore (local wins); no state change
+  //  • no remote doc → push local so Firestore is seeded with current data
   //
-  // force=true skips the comparison and always applies whatever Sheets has
+  // force=true skips the comparison and always applies whatever Firestore has
   // (used by the explicit "Pull from cloud" button in Backup screen).
-  const loadFromSheets = React.useCallback(async (token, { force = false } = {}) => {
-    let sheetId = sheetIdRef.current
-    if (!sheetId) {
-      sheetId = await getOrCreateSpreadsheet(token)
-      localStorage.setItem(SHEET_KEY, sheetId)
-      sheetIdRef.current = sheetId
+  const loadFromFirebase = React.useCallback(async (uid, { force = false } = {}) => {
+    const remote = await readUserState(uid)
+
+    if (!remote) {
+      // User has no Firestore document yet — push local state to seed it
+      if ((stateRef.current.accounts?.length || 0) > 0 || stateRef.current.lastModifiedAt > 0) {
+        console.info('[bappy] No Firestore document — seeding from local state')
+        try {
+          await writeUserState(uid, stateRef.current)
+          setLastSynced(new Date().toISOString())
+          lastWriteRef.current = Date.now()
+        } catch (pushErr) {
+          console.warn('[bappy] Seed push failed:', pushErr)
+        }
+      }
+      return
     }
-    const remote = await readAll(token, sheetId)
 
     if (!force) {
-      const remoteModifiedAt = remote.Settings?.__remoteModifiedAt || 0
+      const remoteModifiedAt = remote.lastModifiedAt || 0
       const localModifiedAt  = stateRef.current.lastModifiedAt || 0
       const localHasData     = (stateRef.current.accounts?.length || 0) > 0
 
       if (localModifiedAt >= remoteModifiedAt && (localHasData || localModifiedAt > 0)) {
-        // Local is newer or equal — push local to Sheets so it's up to date, skip merge
-        console.info('[bappy] Local state is newer than Sheets (local=%d remote=%d) — pushing local', localModifiedAt, remoteModifiedAt)
+        // Local is newer or equal — push to Firestore, skip merge
+        console.info('[bappy] Local state is newer than Firestore (local=%d remote=%d) — pushing local', localModifiedAt, remoteModifiedAt)
         try {
-          await writeAll(token, sheetId, stateRef.current)
+          await writeUserState(uid, stateRef.current)
           setLastSynced(new Date().toISOString())
           lastWriteRef.current = Date.now()
         } catch (pushErr) {
           console.warn('[bappy] Push-instead-of-pull failed:', pushErr)
         }
-        return sheetId
+        return
       }
     }
 
@@ -598,23 +639,14 @@ export function BappyProvider({ children }) {
     skipNextSync.current = true   // don't echo back what we just read
     dispatch({ type: 'MERGE_REMOTE', remote })
     setLastSynced(new Date().toISOString())
-    return sheetId
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Immediately push current local state to Sheets, overwriting whatever was there.
-  // Use this when local data is correct and you want to discard stale Sheets data.
+  // Immediately push current local state to Firestore (manual "push to cloud").
   const pushToSheets = React.useCallback(async () => {
-    if (!sheetIdRef.current && !tokenRef.current) throw new Error('Not connected to Google Sheets. Sign in first.')
+    if (!uidRef.current) throw new Error('Not signed in. Sign in first to sync to cloud.')
     setSyncStatus('syncing')
     try {
-      const token = tokenRef.current || await getToken(true)
-      tokenRef.current = token
-      if (!sheetIdRef.current) {
-        const id = await getOrCreateSpreadsheet(token)
-        localStorage.setItem(SHEET_KEY, id)
-        sheetIdRef.current = id
-      }
-      await writeAll(token, sheetIdRef.current, stateRef.current)
+      await writeUserState(uidRef.current, stateRef.current)
       setSyncStatus('idle')
       setSyncError(null)
       setLastSynced(new Date().toISOString())
@@ -624,17 +656,15 @@ export function BappyProvider({ children }) {
       setSyncError(err?.message || String(err))
       throw err
     }
-  }, [])  // stateRef is a ref — always current, no dep needed
+  }, [])  // stateRef / uidRef are refs — always current, no dep needed
 
-  // Manually pull the latest data from Sheets (e.g. from Backup screen or after switching devices).
+  // Manually pull the latest data from Firestore (manual "pull from cloud").
   // Always applies remote data regardless of version — the user explicitly requested a pull.
   const pullFromSheets = React.useCallback(async () => {
-    if (!sheetIdRef.current && !tokenRef.current) throw new Error('Not connected to Google Sheets. Sign in first.')
+    if (!uidRef.current) throw new Error('Not signed in. Sign in first to sync from cloud.')
     setSyncStatus('syncing')
     try {
-      const token = tokenRef.current || await getToken(true)
-      tokenRef.current = token
-      await loadFromSheets(token, { force: true })
+      await loadFromFirebase(uidRef.current, { force: true })
       setSyncStatus('idle')
       setSyncError(null)
     } catch (err) {
@@ -642,7 +672,31 @@ export function BappyProvider({ children }) {
       setSyncError(err?.message || String(err))
       throw err
     }
-  }, [loadFromSheets])
+  }, [loadFromFirebase])
+
+  // ── Real-time snapshot handler ──────────────────────────────
+  // Called by BappyAuthProvider's Firestore onSnapshot listener whenever
+  // another device writes to the user's Firestore document.
+  // Guards:
+  //  • Ignores snapshots within 5 s of a local write (likely an echo of our own write)
+  //  • Ignores snapshots where remote timestamp ≤ local (no new data)
+  //  • Sets skipNextSync so the resulting state change doesn't write back to Firestore
+  const onRemoteUpdate = React.useCallback((remoteState) => {
+    if (Date.now() - lastWriteRef.current < 5_000) {
+      console.info('[bappy] Snapshot skipped — possible echo of recent local write')
+      return
+    }
+    const remoteTs = remoteState.lastModifiedAt || 0
+    const localTs  = stateRef.current.lastModifiedAt || 0
+    if (remoteTs <= localTs) {
+      console.info('[bappy] Snapshot skipped — remote (%d) not newer than local (%d)', remoteTs, localTs)
+      return
+    }
+    console.info('[bappy] Real-time update — applying remote state (remote=%d > local=%d)', remoteTs, localTs)
+    skipNextSync.current = true   // don't echo the merge back to Firestore
+    dispatch({ type: 'MERGE_REMOTE', remote: remoteState })
+    setLastSynced(new Date().toISOString())
+  }, [])  // all accessed via stable refs — no deps needed
 
   const value = React.useMemo(() => ({
     state, dispatch, syncStatus, syncError, lastSynced, storageError,
@@ -652,11 +706,12 @@ export function BappyProvider({ children }) {
     rec:    (id) => state.recurring.find(r => r.id === id),
     budget: (id) => state.budgets.find(b => b.id === id),
     // exposed so BappyAuthProvider can drive sync
-    _setToken:       (t) => { tokenRef.current = t },
-    _setSyncStatus:  setSyncStatus,
-    _loadFromSheets: loadFromSheets,
-    _lastWriteAt:    lastWriteRef,   // ref — stable, no extra dep needed
-  }), [state, syncStatus, syncError, lastSynced, storageError, pushToSheets, pullFromSheets, loadFromSheets])
+    _setUid:           (uid) => { uidRef.current = uid },
+    _setSyncStatus:    setSyncStatus,
+    _loadFromFirebase: loadFromFirebase,
+    _onRemoteUpdate:   onRemoteUpdate,  // for the real-time Firestore listener
+    _lastWriteAt:      lastWriteRef,    // ref — stable, no extra dep needed
+  }), [state, syncStatus, syncError, lastSynced, storageError, pushToSheets, pullFromSheets, loadFromFirebase, onRemoteUpdate])
 
   return React.createElement(BappyContext.Provider, { value }, children)
 }
@@ -681,36 +736,89 @@ function saveAuth(a) {
   try { localStorage.setItem(AUTH_KEY, JSON.stringify(a)) } catch {}
 }
 
-// BappyAuthProvider must be a CHILD of BappyProvider so it can read its context
+// BappyAuthProvider must be a CHILD of BappyProvider so it can read its context.
 export function BappyAuthProvider({ children }) {
-  const { _setToken, _setSyncStatus, _loadFromSheets, _lastWriteAt } = useBappy()
+  const { _setUid, _setSyncStatus, _loadFromFirebase, _lastWriteAt, _onRemoteUpdate } = useBappy()
   const [auth,    setAuth]    = React.useState(loadAuth)
-  const [gisReady, setGisReady] = React.useState(false)
+  const [fbReady, setFbReady] = React.useState(false)
   // Initialise to Date.now() so the first auto-pull is deferred by the full
   // throttle window from page load, not fired immediately on the first focus event.
-  const lastAutoSyncRef = React.useRef(Date.now())
+  const lastAutoSyncRef  = React.useRef(Date.now())
+  const snapshotUnsubRef = React.useRef(null)   // holds active Firestore listener teardown fn
 
   React.useEffect(() => { saveAuth(auth) }, [auth])
 
-  // Auto-pull from Sheets whenever the app tab becomes visible again
-  // (handles the "switched device, came back to this tab" case)
-  // Throttled to at most once per 2 minutes.
-  // loadFromSheets now performs version comparison, so even if the pull fires it
-  // will push local state instead of overwriting it when local is newer.
+  // ── Firebase Auth state observer ─────────────────────────────
+  // Fires immediately with the current user (auto-restores sessions),
+  // then on every sign-in/sign-out.
+  React.useEffect(() => {
+    const unsub = onAuthChange(async (fbUser) => {
+      setFbReady(true)   // Firebase SDK is ready once we get the first event
+
+      if (!fbUser) {
+        // Signed out — stop writes and kill the real-time listener
+        _setUid(null)
+        if (snapshotUnsubRef.current) {
+          snapshotUnsubRef.current()
+          snapshotUnsubRef.current = null
+        }
+        return
+      }
+
+      // Signed in (either a new sign-in or an auto-restored session)
+      const user = normaliseUser(fbUser)
+      _setUid(fbUser.uid)
+      setAuth({ signedIn: true, user })
+
+      // One-time sync at sign-in with version check (local wins if newer)
+      _setSyncStatus('syncing')
+      try {
+        await _loadFromFirebase(fbUser.uid)
+        _setSyncStatus('idle')
+        lastAutoSyncRef.current = Date.now()
+      } catch (err) {
+        _setSyncStatus('error')
+        console.warn('[bappy] Auto-restore sync failed:', err)
+      }
+
+      // ── Start real-time Firestore listener ──────────────────
+      // Tear down any previous listener (e.g. uid change) before starting a new one.
+      if (snapshotUnsubRef.current) {
+        snapshotUnsubRef.current()
+      }
+      snapshotUnsubRef.current = subscribeUserState(
+        fbUser.uid,
+        _onRemoteUpdate,
+        (err) => console.warn('[bappy] Real-time listener error:', err)
+      )
+    })
+    return unsub  // unsubscribe auth observer on unmount
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Clean up Firestore listener on unmount ──────────────────
+  React.useEffect(() => {
+    return () => {
+      if (snapshotUnsubRef.current) {
+        snapshotUnsubRef.current()
+        snapshotUnsubRef.current = null
+      }
+    }
+  }, [])
+
+  // ── Auto-pull on tab focus ─────────────────────────────────
+  // Throttled to once per 2 minutes. The version check in loadFromFirebase
+  // ensures local data is only overwritten when the remote is genuinely newer.
   const AUTO_PULL_THROTTLE = 120_000  // 2 minutes
   React.useEffect(() => {
-    if (!auth.signedIn || auth.user?.method !== 'google') return
+    if (!auth.signedIn) return
+    const uid = auth.user?.uid
+    if (!uid) return
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
       if (Date.now() - lastAutoSyncRef.current < AUTO_PULL_THROTTLE) return
-      // Extra guard: if a write just finished or is still in the debounce window
-      // (1.5 s) plus network round-trip buffer (10 s), the version check in
-      // loadFromSheets will handle it — but this avoids a redundant network round-trip.
       if (Date.now() - (_lastWriteAt?.current || 0) < 10_000) return
       lastAutoSyncRef.current = Date.now()
-      getToken(true)
-        .then(token => { _setToken(token); return _loadFromSheets(token) })
-        .catch(err => console.warn('Auto-pull on focus failed:', err))
+      _loadFromFirebase(uid).catch(err => console.warn('[bappy] Auto-pull on focus failed:', err))
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
@@ -718,91 +826,45 @@ export function BappyAuthProvider({ children }) {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
     }
-  }, [auth.signedIn, auth.user?.method, _setToken, _loadFromSheets])
-
-  // Wait for Google Identity Services to load
-  React.useEffect(() => {
-    if (!CLIENT_ID) return
-    const poll = setInterval(() => {
-      if (window.google?.accounts?.oauth2) {
-        initGoogleAuth(CLIENT_ID)
-        setGisReady(true)
-        clearInterval(poll)
-
-        // Auto-restore session silently
-        if (auth.signedIn && auth.user?.method === 'google') {
-          getToken(true)
-            .then(async token => {
-              _setToken(token)
-              _setSyncStatus('syncing')
-              await _loadFromSheets(token)
-              _setSyncStatus('idle')
-              // Reset auto-pull clock — we just loaded from Sheets, so defer
-              // the next auto-pull a full 2 minutes from now.
-              lastAutoSyncRef.current = Date.now()
-            })
-            .catch((err) => {
-              _setSyncStatus('error')
-              console.warn('Auto-restore sync failed:', err)
-            })
-        }
-      }
-    }, 200)
-    return () => clearInterval(poll)
-  }, [])  // eslint-disable-line
+  }, [auth.signedIn, auth.user?.uid, _loadFromFirebase, _lastWriteAt])
 
   const value = React.useMemo(() => ({
     signedIn: auth.signedIn,
     user:     auth.user,
-    gisReady,
+    gisReady: fbReady,   // kept as gisReady so LoginScreen / bappy-app.jsx need no changes
 
-    // Google OAuth sign-in
+    // Google Sign-In via Firebase popup
     googleSignIn: async () => {
       _setSyncStatus('syncing')
       try {
-        let token
-        try {
-          token = await getToken(false)
-        } catch (e) {
-          throw new Error('Token error: ' + (e?.message || e))
-        }
-        _setToken(token)
-
-        let profile
-        try {
-          profile = await getGoogleProfile(token)
-          if (!profile?.email) throw new Error('No email in profile response')
-        } catch (e) {
-          throw new Error('Profile error: ' + (e?.message || e))
-        }
-
-        try {
-          await _loadFromSheets(token)
-        } catch (e) {
-          throw new Error('Sheets error: ' + (e?.message || e))
-        }
-        // Sign-in just ran _loadFromSheets — reset the auto-pull clock so the
-        // next auto-pull is deferred a full 2 minutes from now, not fired immediately.
-        lastAutoSyncRef.current = Date.now()
-
-        const user = {
-          email:       profile.email,
-          name:        profile.name,
-          picture:     profile.picture,
-          method:      'google',
-          signedInAt:  new Date().toISOString(),
-        }
-        setAuth({ signedIn: true, user })
-        _setSyncStatus('idle')
-        return user
+        // signInWithPopup triggers onAuthChange above, which handles the sync.
+        // We just await it so the caller (LoginScreen) gets a result / error.
+        const fbUser = await signInWithGoogle()
+        // onAuthChange will fire and set auth state — nothing more needed here.
+        return normaliseUser(fbUser)
       } catch (err) {
         _setSyncStatus('error')
         throw err
       }
     },
 
-    // Email / demo sign-in (no Sheets sync)
-    signIn: ({ email, method = 'email', name }) => {
+    // Email sign-in — backed by Firebase email/password.
+    // The 6-digit code is used as the password (demo UX).
+    // On first use the account is created; subsequent sign-ins require the same code.
+    signIn: async ({ email, method = 'email', name, code }) => {
+      if (method === 'email' && email && code) {
+        // Firebase email/password — the 6-digit code IS the password (demo).
+        _setSyncStatus('syncing')
+        try {
+          const fbUser = await signInWithEmail(email, code)
+          // onAuthChange fires and handles sync — nothing extra needed.
+          return normaliseUser(fbUser)
+        } catch (err) {
+          _setSyncStatus('error')
+          throw err
+        }
+      }
+      // Fallback: local-only sign-in (no Firebase UID, no Firestore sync)
       const inferredName = name ||
         (email?.includes('@')
           ? email.split('@')[0].split(/[.\-_]/).map(s => s[0].toUpperCase() + s.slice(1)).join(' ')
@@ -813,14 +875,15 @@ export function BappyAuthProvider({ children }) {
       })
     },
 
-    signOut: () => {
-      revokeToken()
+    signOut: async () => {
+      await fbSignOut()
+      _setUid(null)
       localStorage.removeItem(AUTH_KEY)
       setAuth({ signedIn: false, user: null })
     },
 
     updateUser: (patch) => setAuth(a => ({ ...a, user: { ...(a.user || {}), ...patch } })),
-  }), [auth, gisReady, _setToken, _setSyncStatus, _loadFromSheets])
+  }), [auth, fbReady, _setUid, _setSyncStatus, _loadFromFirebase])
 
   return React.createElement(BappyAuthContext.Provider, { value }, children)
 }
