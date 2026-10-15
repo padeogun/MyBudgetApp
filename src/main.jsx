@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './theme.css'
 import './premium-theme.css'
+import './home-v2.css'
 import { BappyApp } from './bappy-app.jsx'
 
 class ErrorBoundary extends React.Component {
