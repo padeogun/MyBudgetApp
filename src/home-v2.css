@@ -1,0 +1,22 @@
+
+/* Bappy 2.0 — visible mobile-first dashboard redesign */
+.bappy-home-v2{background:linear-gradient(180deg,#f1f8f7 0%,#f8faf9 480px,#f5f8f8 100%);min-height:100%}
+.bappy-home-v2 .bappy-home-intro{padding:2px 18px 14px}
+.bappy-home-v2 .bappy-eyebrow{font-size:10px;letter-spacing:2px;font-weight:800;color:#087f83}
+.bappy-home-v2 .bappy-home-intro p{font-size:13px;color:#607477;margin:5px 0 0;line-height:1.5}
+.bappy-home-v2 .bappy-hero-wrap>div{border-radius:26px!important;background:linear-gradient(120deg,#102f33 0%,#164d50 65%,#087f83 135%)!important;border:1px solid rgba(255,255,255,.13)!important;box-shadow:0 20px 42px -24px rgba(16,47,51,.65)!important;padding:24px!important}
+.bappy-home-v2 .bappy-hero-topline{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:18px}
+.bappy-home-v2 .bappy-hero-kicker{font-size:10px;letter-spacing:1.4px;color:#c7e5df;font-weight:700}
+.bappy-home-v2 .bappy-hero-live{display:flex;align-items:center;gap:6px;font-size:9px;letter-spacing:.8px;font-weight:700;color:#b9e9db;background:rgba(255,255,255,.09);padding:7px 9px;border-radius:99px}
+.bappy-home-v2 .bappy-hero-live span{height:6px;width:6px;border-radius:50%;background:#47ddbd}
+.bappy-home-v2 .bappy-hero-warning{font-size:12px;line-height:1.45;margin:13px 0 6px;padding:10px 12px;border-radius:12px;background:rgba(216,92,105,.17);color:#ffe5e7;border:1px solid rgba(255,185,190,.22)}
+.bappy-home-v2 .bappy-hero-wrap .tnum{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.bappy-home-v2 .bappy-home-section-intro{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:23px 18px 0}
+.bappy-home-v2 .bappy-home-section-intro span:first-child{font-size:11px;letter-spacing:1.2px;font-weight:800;color:#102f33}
+.bappy-home-v2 .bappy-home-section-intro span:last-child{font-size:11px;color:#607477}
+.bappy-home-v2 .bappy-home-section-intro+div>div{min-width:0}
+.bappy-home-v2 .bappy-home-section-intro+div>div>div{border-radius:19px!important;box-shadow:0 6px 22px rgba(20,62,61,.045);border-color:#dbe8e7!important}
+.bappy-home-v2 .bappy-home-section-intro+div .tnum{overflow-wrap:anywhere}
+.bappy-home-v2 .bappy-hero-wrap+div{margin-top:0}
+@media(max-width:390px){.bappy-home-v2 .bappy-hero-wrap>div{padding:20px!important}.bappy-home-v2 .bappy-hero-wrap .tnum{letter-spacing:-1.4px!important}}
+@media(min-width:768px){.bappy-home-v2 .bappy-home-intro,.bappy-home-v2 .bappy-home-section-intro{padding-left:24px;padding-right:24px}.bappy-home-v2 .bappy-hero-wrap>div{padding:32px!important}}
