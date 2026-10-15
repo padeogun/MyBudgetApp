@@ -158,7 +158,7 @@ function AppBody() {
           <SyncBanner />
           <div className="bappy-scroll" style={{ flex: 1, overflowY: 'auto' }}
             key={route.current.name + JSON.stringify(route.current.params)}>
-            <div style={{ maxWidth: 820, margin: '0 auto', paddingBottom: 48, animation: 'bappy-fade 0.2s ease' }}>
+            <div style={{ maxWidth: 1240, margin: '0 auto', paddingBottom: 48, animation: 'bappy-fade 0.2s ease' }}>
               {screen ? screen() : <div style={{ padding: 24, color: 'var(--c-slate-mute)' }}>Unknown route: {route.current.name}</div>}
             </div>
           </div>
@@ -217,7 +217,7 @@ export function BappyApp() {
         <div className="bappy-stage">
           <AppShell />
         </div>
-        <BappyTweaks />
+        {import.meta.env.DEV && <BappyTweaks />}
       </BappyAuthProvider>
     </BappyProvider>
   )
