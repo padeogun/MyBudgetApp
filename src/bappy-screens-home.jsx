@@ -52,7 +52,7 @@ function HomeScreen() {
   debtFreeDate.setUTCMonth(debtFreeDate.getUTCMonth() + longestPayoff);
 
   return (
-    <div style={{ paddingBottom: 120 }}>
+    <div className="bappy-home-v2" style={{ paddingBottom: 120 }}>
       <ScreenHeader
         title={(() => {
           const h = BappyUtil.today().getHours();
@@ -63,8 +63,10 @@ function HomeScreen() {
         subtitle={BappyUtil.fmtDateLong(BappyUtil.today())}
       />
 
+      <div className="bappy-home-intro"><span className="bappy-eyebrow">YOUR MONEY, AT A GLANCE</span><p>Make confident moves with a clearer view of today.</p></div>
+
       {/* Hero — Available to spend */}
-      <div style={{ padding: '4px 16px 0' }}>
+      <div className="bappy-hero-wrap" style={{ padding: '4px 16px 0' }}>
         <Card dark padding={20} style={{ position: 'relative', overflow: 'hidden' }}>
           {/* decorative glow */}
           <div style={{
@@ -74,6 +76,7 @@ function HomeScreen() {
             pointerEvents: 'none',
           }} />
           <div style={{ position: 'relative' }}>
+            <div className="bappy-hero-topline"><span className="bappy-hero-kicker">SPENDING POWER</span><span className="bappy-hero-live"><span /> LIVE OVERVIEW</span></div>
             <div style={{
               fontSize: 11, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase',
               letterSpacing: 1.4, fontWeight: 500,
@@ -82,6 +85,7 @@ function HomeScreen() {
               fontSize: 40, fontWeight: 300, color: '#fff', lineHeight: 1.1,
               marginTop: 4, letterSpacing: -0.8,
             }}>{BappyUtil.fmtGBP(avail)}</div>
+            {avail < 0 && <div className="bappy-hero-warning">Your available balance is below zero. Review upcoming commitments.</div>}
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 6 }}>
               <span style={{ color: 'var(--c-seafoam)' }}>●</span>{' '}
               until pay day · {BappyUtil.fmtDateShort(payDay)} <span style={{ color: 'rgba(255,255,255,0.5)' }}>({daysToPay}d)</span>
@@ -99,6 +103,7 @@ function HomeScreen() {
         </Card>
       </div>
 
+      <div className="bappy-home-section-intro"><span>FINANCIAL SNAPSHOT</span><span>Your bigger picture</span></div>
       {/* Net position + Debt clear */}
       <div style={{ padding: '12px 16px 0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <Card padding={14} onClick={() => route.gotoTab('accounts')}>
