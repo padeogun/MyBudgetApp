@@ -2,6 +2,19 @@ import React from 'react'
 import { Icon } from './bappy-icons.jsx'
 // Bappy primitives — Card, Tag, IconContainer, ProgressBar, Sheet, Button
 
+function useIsDesktop() {
+  const [d, setD] = React.useState(
+    () => typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : false
+  )
+  React.useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const h = e => setD(e.matches)
+    mq.addEventListener('change', h)
+    return () => mq.removeEventListener('change', h)
+  }, [])
+  return d
+}
+
 // ─── IconContainer ────────────────────────────────────────────
 function IconContainer({ glyph, size = 36, tint, variant = 'default' }) {
   // tint: full color of the glyph; bg derived from tint at low opacity
@@ -133,15 +146,61 @@ function Button({ children, variant = 'primary', size = 'md', icon, onClick, dis
   );
 }
 
-// ─── Sheet (bottom modal) ────────────────────────────────────
+// ─── Sheet (bottom modal on mobile, centred modal on desktop) ──
 function Sheet({ open, onClose, title, children, footer, height }) {
-  if (!open) return null;
+  const isDesktop = useIsDesktop()
+  if (!open) return null
+
+  if (isDesktop) {
+    // Centred modal
+    return (
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 200,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <div onClick={onClose} style={{
+          position: 'absolute', inset: 0, background: 'rgba(31,44,44,0.5)',
+          animation: 'bappy-fade 0.18s ease',
+        }} />
+        <div style={{
+          position: 'relative', background: '#fff',
+          borderRadius: 18,
+          boxShadow: '0 24px 64px rgba(0,0,0,0.18)',
+          width: 520, maxWidth: 'calc(100vw - 48px)',
+          maxHeight: '88vh',
+          display: 'flex', flexDirection: 'column',
+          animation: 'bappy-fade 0.18s ease',
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--c-border)',
+            flexShrink: 0,
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--c-deep-ink)' }}>{title || ''}</div>
+            <button onClick={onClose} style={{
+              width: 32, height: 32, borderRadius: 999, background: 'var(--c-ice-wash)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--c-slate)', flexShrink: 0,
+            }}><Icon name="close" size={16} /></button>
+          </div>
+          <div className="bappy-scroll" style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+            {children}
+          </div>
+          {footer && (
+            <div style={{ padding: 16, borderTop: '1px solid var(--c-border)', flexShrink: 0 }}>{footer}</div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Mobile — bottom sheet (unchanged)
   return (
     <div style={{
       position: 'absolute', inset: 0, zIndex: 200,
       display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
     }}>
-      {/* scrim */}
       <div onClick={onClose} style={{
         position: 'absolute', inset: 0, background: 'rgba(31,44,44,0.45)',
         animation: 'bappy-fade 0.2s ease',
@@ -154,7 +213,6 @@ function Sheet({ open, onClose, title, children, footer, height }) {
         display: 'flex', flexDirection: 'column',
         animation: 'bappy-slide-up 0.28s cubic-bezier(.2,.7,.2,1)',
       }}>
-        {/* handle */}
         <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 8, paddingBottom: 4 }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: 'var(--c-haze-teal)', opacity: 0.5 }} />
         </div>
@@ -176,14 +234,11 @@ function Sheet({ open, onClose, title, children, footer, height }) {
           {children}
         </div>
         {footer && (
-          <div style={{
-            padding: 16, borderTop: '1px solid var(--c-border)',
-            paddingBottom: 24,
-          }}>{footer}</div>
+          <div style={{ padding: 16, borderTop: '1px solid var(--c-border)', paddingBottom: 24 }}>{footer}</div>
         )}
       </div>
     </div>
-  );
+  )
 }
 
 // ─── Section header ──────────────────────────────────────────

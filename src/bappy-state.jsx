@@ -150,6 +150,103 @@ export const BappyUtil = {
     return current.balance - committed
   },
 
+  // Compute live progress for a goal from current state.
+  goalProgress: (goal, state) => {
+    const today = BappyUtil.today();
+    let current = 0;
+    let target = goal.targetAmount || 1;
+
+    if (goal.type === 'savings' || goal.type === 'emergency_fund') {
+      const acc = state.accounts.find(a => a.id === goal.linkedAccountId);
+      current = acc ? Math.max(0, acc.balance) : 0;
+      if (goal.type === 'emergency_fund' && !goal.targetAmount) {
+        const threeAgo = new Date(today); threeAgo.setUTCMonth(threeAgo.getUTCMonth() - 3);
+        const spend = state.transactions
+          .filter(t => t.direction === 'expense' && new Date(t.date) >= threeAgo)
+          .reduce((s, t) => s + t.amount, 0);
+        target = Math.ceil((spend / 3) * 3 / 100) * 100 || 3000;
+      }
+    } else if (goal.type === 'debt_payoff') {
+      const acc = state.accounts.find(a => a.id === goal.linkedAccountId);
+      const baseline = goal.baselineAmount || 1;
+      const currentDebt = acc ? Math.abs(Math.min(0, acc.balance)) : 0;
+      current = Math.max(0, baseline - currentDebt);
+      target = baseline;
+    } else if (goal.type === 'net_worth') {
+      current = Math.max(0, state.accounts.reduce((s, a) => s + a.balance, 0));
+      target = goal.targetAmount || 1;
+    } else if (goal.type === 'spending_habit') {
+      // Count consecutive months (most recent first) where income > expenses
+      target = goal.targetMonths || 3;
+      let streak = 0;
+      const txByMonth = {};
+      state.transactions.forEach(t => {
+        const key = t.date.slice(0, 7); // YYYY-MM
+        if (!txByMonth[key]) txByMonth[key] = { inc: 0, exp: 0 };
+        if (t.direction === 'income')  txByMonth[key].inc += t.amount;
+        if (t.direction === 'expense') txByMonth[key].exp += t.amount;
+      });
+      // Walk backwards month by month from now
+      const now = today;
+      for (let m = 0; m <= 23; m++) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - m, 1));
+        const key = d.toISOString().slice(0, 7);
+        const mo = txByMonth[key];
+        if (mo && mo.inc > mo.exp) streak++;
+        else break;
+      }
+      current = streak;
+    }
+
+    const pct = Math.min(100, target > 0 ? (current / target) * 100 : 0);
+    const isAchieved = pct >= 100;
+    const milestonesDone = goal.milestonesDone || [];
+    const uncelebrated = [25, 50, 75, 100].filter(m => pct >= m && !milestonesDone.includes(m));
+
+    // On-track: extrapolate daily rate vs target date
+    let onTrack = null;
+    if (goal.targetDate && goal.createdAt && !isAchieved) {
+      const elapsedDays = Math.max(1, (today - new Date(goal.createdAt)) / 86400000);
+      const baseline0 = goal.baselineAmount || 0;
+      const dailyRate = (current - baseline0) / elapsedDays;
+      if (dailyRate > 0) {
+        const daysNeeded = (target - current) / dailyRate;
+        const projectedDate = new Date(today.getTime() + daysNeeded * 86400000);
+        onTrack = projectedDate <= new Date(goal.targetDate);
+      } else {
+        onTrack = false;
+      }
+    }
+
+    return { current, target, pct, isAchieved, uncelebrated, onTrack };
+  },
+
+  // Returns the last N months as { key, surplus, label } for the spending_habit goal display.
+  surplusMonths: (state, n = 6) => {
+    const today = BappyUtil.today();
+    const txByMonth = {};
+    state.transactions.forEach(t => {
+      const key = t.date.slice(0, 7);
+      if (!txByMonth[key]) txByMonth[key] = { inc: 0, exp: 0 };
+      if (t.direction === 'income')  txByMonth[key].inc += t.amount;
+      if (t.direction === 'expense') txByMonth[key].exp += t.amount;
+    });
+    const months = [];
+    for (let m = n - 1; m >= 0; m--) {
+      const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - m, 1));
+      const key = d.toISOString().slice(0, 7);
+      const mo = txByMonth[key];
+      const surplus = mo ? mo.inc - mo.exp : null;
+      months.push({
+        key,
+        surplus,
+        label: d.toLocaleDateString('en-GB', { month: 'short' }),
+        isCurrentMonth: m === 0,
+      });
+    }
+    return months;
+  },
+
   simulateDebt: (balance, apr, monthlyPayment, monthsCap = 600) => {
     let bal = Math.abs(balance)
     const rate = apr / 100 / 12
@@ -172,6 +269,17 @@ export const BappyUtil = {
     if (!current) return []
     const t    = BappyUtil.today()
     const proj = BappyUtil.projectRecurring(state.recurring, days)
+
+    // Also include manually-entered scheduled (future-dated) transactions so they
+    // appear in the forecast without double-counting recurring templates.
+    const todayStr = t.toISOString().slice(0, 10)
+    state.transactions.forEach(txn => {
+      if (txn.status !== 'scheduled') return
+      if (txn.accountId !== current.id) return
+      if (txn.direction === 'transfer-in') return
+      proj.push({ date: txn.date, amount: txn.amount, direction: txn.direction, accountId: txn.accountId, payee: txn.description || 'Scheduled', isScheduledTxn: true })
+    })
+
     const out  = []
     let bal    = current.balance
     for (let i = 0; i <= days; i++) {
@@ -226,8 +334,10 @@ function bappyReducerCore(state, action) {
         recurring:    (r.recurring?.length)    ? r.recurring   : state.recurring,
         budgets:      (r.budgets?.length)      ? r.budgets     : state.budgets,
         nudgeRules:   (r.nudgeRules?.length)   ? r.nudgeRules  : state.nudgeRules,
+        goals:        (r.goals?.length)        ? r.goals       : state.goals,
         settings:     r.settings ? { ...state.settings, ...cleanRemoteSettings } : state.settings,
-        lastModifiedAt: remoteModifiedAt || state.lastModifiedAt || 0,
+        lastModifiedAt:       remoteModifiedAt || state.lastModifiedAt || 0,
+        _scheduledMigratedV2: r._scheduledMigratedV2 ?? state._scheduledMigratedV2 ?? false,
       }
     }
 
@@ -248,9 +358,14 @@ function bappyReducerCore(state, action) {
     case 'IMPORT_BATCH': {
       const now = Date.now()
       // Honour pre-assigned IDs (set by handleRunImport so auto-link pairs can reference them)
-      const tagged = action.txns.map((t, i) => ({ ...t, id: t.id || ('tx-' + (now + i)) }))
+      const todayStr = new Date(now).toISOString().slice(0, 10)
+      const tagged = action.txns.map((t, i) => {
+        const isScheduled = t.date > todayStr
+        return { ...t, id: t.id || ('tx-' + (now + i)), status: isScheduled ? 'scheduled' : (t.status || 'posted') }
+      })
       const deltas = {}
       tagged.forEach(t => {
+        if (t.status === 'scheduled') return  // future — no balance impact yet
         const d = t.direction === 'income' ? t.amount : -t.amount
         deltas[t.accountId] = (deltas[t.accountId] || 0) + d
       })
@@ -289,6 +404,7 @@ function bappyReducerCore(state, action) {
       const removed = state.transactions.filter(t => idSet.has(t.id))
       const deltas = {}
       removed.forEach(t => {
+        if (t.status === 'scheduled') return  // was never applied to balance
         const reverse = t.direction === 'income' ? -t.amount : t.amount
         deltas[t.accountId] = (deltas[t.accountId] || 0) + reverse
       })
@@ -304,19 +420,32 @@ function bappyReducerCore(state, action) {
     case 'ADD_TRANSACTION': {
       const t  = action.txn
       const id = 'tx-' + Date.now()
-      const accounts = state.accounts.map(a => {
-        if (a.id !== t.accountId) return a
-        const delta = t.direction === 'income' ? t.amount : -t.amount
-        return { ...a, balance: +(a.balance + delta).toFixed(2) }
-      })
-      let txns = [...state.transactions, { ...t, id }]
+      const todayStr  = BappyUtil.today().toISOString().slice(0, 10)
+      const isScheduled = t.date > todayStr
+      const status   = isScheduled ? 'scheduled' : (t.status || 'posted')
+      const newTxn   = { ...t, id, status }
+
+      // Only apply balance delta for transactions happening today or earlier
+      let accounts = state.accounts
+      if (!isScheduled) {
+        accounts = state.accounts.map(a => {
+          if (a.id !== t.accountId) return a
+          const delta = t.direction === 'income' ? t.amount : -t.amount
+          return { ...a, balance: +(a.balance + delta).toFixed(2) }
+        })
+      }
+
+      let txns = [...state.transactions, newTxn]
       if (t.direction === 'transfer' && t.transferToId) {
-        txns.push({ ...t, id: 'tx-' + (Date.now() + 1), accountId: t.transferToId, transferToId: t.accountId, direction: 'transfer-in' })
-        return {
-          ...state, transactions: txns,
-          accounts: accounts.map(a => a.id === t.transferToId
-            ? { ...a, balance: +(a.balance + t.amount).toFixed(2) } : a),
+        txns.push({ ...t, id: 'tx-' + (Date.now() + 1), accountId: t.transferToId, transferToId: t.accountId, direction: 'transfer-in', status })
+        if (!isScheduled) {
+          return {
+            ...state, transactions: txns,
+            accounts: accounts.map(a => a.id === t.transferToId
+              ? { ...a, balance: +(a.balance + t.amount).toFixed(2) } : a),
+          }
         }
+        return { ...state, transactions: txns, accounts }
       }
       return { ...state, transactions: txns, accounts }
     }
@@ -324,21 +453,25 @@ function bappyReducerCore(state, action) {
     case 'DELETE_TRANSACTION': {
       const tx = state.transactions.find(t => t.id === action.id)
       if (!tx) return state
-      // For a transfer-out, also delete the paired transfer-in and reverse both balance effects
+      const isScheduled   = tx.status === 'scheduled'
       const isTransferOut = tx.direction === 'transfer'
       const pairedId = isTransferOut
         ? state.transactions.find(t => t.direction === 'transfer-in' && t.transferToId === tx.accountId && t.accountId === tx.transferToId && t.amount === tx.amount)?.id
         : null
-      let accounts = state.accounts.map(a => {
-        if (a.id === tx.accountId) {
-          const delta = tx.direction === 'income' ? -tx.amount : tx.amount
-          return { ...a, balance: +(a.balance + delta).toFixed(2) }
-        }
-        if (isTransferOut && a.id === tx.transferToId) {
-          return { ...a, balance: +(a.balance - tx.amount).toFixed(2) }
-        }
-        return a
-      })
+      // Only reverse balance for posted/cleared transactions — scheduled ones never touched the balance
+      let accounts = state.accounts
+      if (!isScheduled) {
+        accounts = state.accounts.map(a => {
+          if (a.id === tx.accountId) {
+            const delta = tx.direction === 'income' ? -tx.amount : tx.amount
+            return { ...a, balance: +(a.balance + delta).toFixed(2) }
+          }
+          if (isTransferOut && a.id === tx.transferToId) {
+            return { ...a, balance: +(a.balance - tx.amount).toFixed(2) }
+          }
+          return a
+        })
+      }
       const idsToRemove = new Set([action.id, ...(pairedId ? [pairedId] : [])])
       return { ...state, accounts, transactions: state.transactions.filter(t => !idsToRemove.has(t.id)) }
     }
@@ -363,21 +496,120 @@ function bappyReducerCore(state, action) {
     case 'UPDATE_TRANSACTION': {
       const old = state.transactions.find(t => t.id === action.id)
       if (!old) return state
-      const updated = { ...old, ...action.patch }
-      // Reverse old balance effect on old account
-      let accounts = state.accounts.map(a => {
-        if (a.id !== old.accountId) return a
-        const reverse = old.direction === 'income' ? -old.amount : old.amount
-        return { ...a, balance: +(a.balance + reverse).toFixed(2) }
-      })
-      // Apply new balance effect on new account (may differ if account changed)
-      accounts = accounts.map(a => {
-        if (a.id !== updated.accountId) return a
-        const apply = updated.direction === 'income' ? updated.amount : -updated.amount
-        return { ...a, balance: +(a.balance + apply).toFixed(2) }
-      })
+      const todayStr   = BappyUtil.today().toISOString().slice(0, 10)
+      const wasScheduled = old.status === 'scheduled' || old.date > todayStr
+      const updated    = { ...old, ...action.patch }
+      const isNowScheduled = updated.date > todayStr
+      updated.status   = isNowScheduled ? 'scheduled' : 'posted'
+
+      let accounts = state.accounts
+
+      if (!wasScheduled && !isNowScheduled) {
+        // Both posted: reverse old delta, apply new delta (possibly different account/amount)
+        accounts = accounts.map(a => {
+          if (a.id === old.accountId) {
+            const reverse = old.direction === 'income' ? -old.amount : old.amount
+            return { ...a, balance: +(a.balance + reverse).toFixed(2) }
+          }
+          return a
+        })
+        accounts = accounts.map(a => {
+          if (a.id === updated.accountId) {
+            const apply = updated.direction === 'income' ? updated.amount : -updated.amount
+            return { ...a, balance: +(a.balance + apply).toFixed(2) }
+          }
+          return a
+        })
+      } else if (wasScheduled && !isNowScheduled) {
+        // Moved from future → today/past: now applies to balance
+        accounts = accounts.map(a => {
+          if (a.id !== updated.accountId) return a
+          const apply = updated.direction === 'income' ? updated.amount : -updated.amount
+          return { ...a, balance: +(a.balance + apply).toFixed(2) }
+        })
+      } else if (!wasScheduled && isNowScheduled) {
+        // Moved from past → future: reverse the old delta
+        accounts = accounts.map(a => {
+          if (a.id !== old.accountId) return a
+          const reverse = old.direction === 'income' ? -old.amount : old.amount
+          return { ...a, balance: +(a.balance + reverse).toFixed(2) }
+        })
+      }
+      // Both scheduled → no balance change
+
       return { ...state, accounts, transactions: state.transactions.map(t => t.id === action.id ? updated : t) }
     }
+
+    // Post any scheduled transactions whose date has passed.
+    // Runs on app load and when the app regains focus.
+    case 'AUTO_POST_SCHEDULED': {
+      const todayStr = BappyUtil.today().toISOString().slice(0, 10)
+      const toPost = state.transactions.filter(t => t.status === 'scheduled' && t.date <= todayStr)
+      if (toPost.length === 0) return state
+      const deltas = {}
+      toPost.forEach(t => {
+        // transfer-in credits the destination account (positive); all other non-income directions debit (negative)
+        const d = (t.direction === 'income' || t.direction === 'transfer-in') ? t.amount : -t.amount
+        deltas[t.accountId] = (deltas[t.accountId] || 0) + d
+      })
+      return {
+        ...state,
+        transactions: state.transactions.map(t =>
+          t.status === 'scheduled' && t.date <= todayStr ? { ...t, status: 'posted' } : t
+        ),
+        accounts: state.accounts.map(a =>
+          deltas[a.id] !== undefined ? { ...a, balance: +(a.balance + deltas[a.id]).toFixed(2) } : a
+        ),
+      }
+    }
+
+    // One-time migration (v2): existing future-dated 'posted' transactions had their balance
+    // incorrectly applied at entry time. Reverse those deltas and mark them 'scheduled'.
+    // v1 accidentally excluded transfer-in transactions; v2 fixes that omission.
+    case 'MIGRATE_SCHEDULED_TRANSACTIONS': {
+      if (state._scheduledMigratedV2) return state
+      const todayStr = BappyUtil.today().toISOString().slice(0, 10)
+      const toFix = state.transactions.filter(t =>
+        t.date > todayStr &&
+        (t.status === 'posted' || t.status === 'cleared' || !t.status)
+        // transfer-in is now included — v1 skipped it, leaving destination balances wrong
+      )
+      if (toFix.length === 0) return { ...state, _scheduledMigratedV2: true }
+      const fixIds = new Set(toFix.map(t => t.id))
+      const deltas = {}
+      toFix.forEach(t => {
+        // Reverse the balance that was incorrectly applied:
+        // income/transfer-in credited the account (+), so reverse is (-); everything else debited (-), reverse is (+)
+        const reverse = (t.direction === 'income' || t.direction === 'transfer-in') ? -t.amount : t.amount
+        deltas[t.accountId] = (deltas[t.accountId] || 0) + reverse
+      })
+      return {
+        ...state,
+        _scheduledMigratedV2: true,
+        transactions: state.transactions.map(t =>
+          fixIds.has(t.id) ? { ...t, status: 'scheduled' } : t
+        ),
+        accounts: state.accounts.map(a =>
+          deltas[a.id] !== undefined ? { ...a, balance: +(a.balance + deltas[a.id]).toFixed(2) } : a
+        ),
+      }
+    }
+
+    case 'ADD_GOAL': {
+      const id = 'goal-' + Date.now()
+      return { ...state, goals: [...(state.goals || []), { ...action.goal, id }] }
+    }
+    case 'UPDATE_GOAL':
+      return { ...state, goals: (state.goals || []).map(g => g.id === action.id ? { ...g, ...action.patch } : g) }
+    case 'DELETE_GOAL':
+      return { ...state, goals: (state.goals || []).filter(g => g.id !== action.id) }
+    case 'CELEBRATE_MILESTONE':
+      return {
+        ...state,
+        goals: (state.goals || []).map(g => g.id === action.id
+          ? { ...g, milestonesDone: [...(g.milestonesDone || []), action.milestone] }
+          : g),
+      }
 
     case 'ADD_RECURRING': {
       const id = 'rec-' + Date.now()
@@ -420,9 +652,16 @@ function bappyReducerCore(state, action) {
       const accounts = state.accounts.map(a =>
         a.id === rec.accountId ? { ...a, balance: (a.balance || 0) + delta } : a
       )
+      const paymentsMade = (rec.paymentsMade || 0) + 1
+      // Auto-deactivate when end date passed or max payments reached
+      const pastEndDate   = rec.endDate && nextDue > rec.endDate
+      const hitMaxPayments = rec.maxPayments && paymentsMade >= rec.maxPayments
+      const stillActive   = rec.active && !pastEndDate && !hitMaxPayments
       return {
         ...state,
-        recurring: state.recurring.map(r => r.id === rec.id ? { ...r, nextDue } : r),
+        recurring: state.recurring.map(r => r.id === rec.id
+          ? { ...r, nextDue, paymentsMade, active: stillActive }
+          : r),
         transactions: [...state.transactions, newTxn],
         accounts,
       }
@@ -494,7 +733,8 @@ function bappyReducerCore(state, action) {
 // Wrapper: stamps lastModifiedAt on every action that produces a new state
 // object, so individual cases never need to remember to do it.
 // RESTORE and MERGE_REMOTE are exempt — they carry their own timestamps.
-const NO_TIMESTAMP_ACTIONS = new Set(['RESTORE', 'MERGE_REMOTE'])
+// These actions carry their own timestamps or must not bump lastModifiedAt
+const NO_TIMESTAMP_ACTIONS = new Set(['RESTORE', 'MERGE_REMOTE', 'AUTO_POST_SCHEDULED', 'MIGRATE_SCHEDULED_TRANSACTIONS'])
 
 function bappyReducer(state, action) {
   const next = bappyReducerCore(state, action)
@@ -543,6 +783,22 @@ export function BappyProvider({ children }) {
         }
       }
     }).catch(err => console.warn('[bappy] Startup storage load failed (non-fatal):', err))
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Scheduled transaction management ─────────────────────────
+  // On mount: run one-time migration (fix legacy future-dated posted transactions)
+  // then auto-post any scheduled transactions whose date has now passed.
+  // Also re-runs on tab focus so overnight payments post when the app is next opened.
+  React.useEffect(() => {
+    dispatch({ type: 'MIGRATE_SCHEDULED_TRANSACTIONS' })
+    dispatch({ type: 'AUTO_POST_SCHEDULED' })
+
+    const handleFocus = () => dispatch({ type: 'AUTO_POST_SCHEDULED' })
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') dispatch({ type: 'AUTO_POST_SCHEDULED' })
+    })
+    return () => window.removeEventListener('focus', handleFocus)
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Persist to both IndexedDB and localStorage on every state change ──
@@ -621,7 +877,7 @@ export function BappyProvider({ children }) {
       const localModifiedAt  = stateRef.current.lastModifiedAt || 0
       const localHasData     = (stateRef.current.accounts?.length || 0) > 0
 
-      if (localModifiedAt >= remoteModifiedAt && (localHasData || localModifiedAt > 0)) {
+      if (localModifiedAt > remoteModifiedAt && (localHasData || localModifiedAt > 0)) {
         // Local is newer or equal — push to Firestore, skip merge
         console.info('[bappy] Local state is newer than Firestore (local=%d remote=%d) — pushing local', localModifiedAt, remoteModifiedAt)
         try {

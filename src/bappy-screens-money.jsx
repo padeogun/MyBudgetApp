@@ -70,9 +70,12 @@ function AccountsScreen() {
               <span style={{ flex: 1, fontSize: 13, color: 'var(--c-slate)', fontWeight: 500 }}>
                 {pending.length} transfer{pending.length !== 1 ? 's' : ''} not yet linked
               </span>
-              <span style={{ fontSize: 12, color: 'var(--c-ocean-teal)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              <button
+                onClick={() => route.openSheet({ kind: 'link-transfers' })}
+                style={{ fontSize: 12, color: 'var(--c-ocean-teal)', fontWeight: 500, whiteSpace: 'nowrap', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+              >
                 Tap to link →
-              </span>
+              </button>
             </div>
           </div>
         );
@@ -224,14 +227,44 @@ function AccountDetailScreen() {
               </div>
             )}
             {isLoan && (
-              <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 14 }}>
-                <KV label="APR"       value={account.apr + '%'} dark />
-                <KV label="Principal" value={BappyUtil.fmtGBPCompact(account.principal)} dark />
-                {!!account.repaymentAmount && <KV label="Per payment"  value={BappyUtil.fmtGBP(account.repaymentAmount)} dark />}
-                {!!account.numPayments     && <KV label="Payments"     value={String(account.numPayments)} dark />}
-                {!!account.startDate       && <KV label="Start"        value={BappyUtil.fmtDateShort(account.startDate)} dark />}
-                {!!account.endDate         && <KV label="End"          value={BappyUtil.fmtDateShort(account.endDate)} dark />}
-              </div>
+              <>
+                <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+                  <KV label="APR"       value={account.apr + '%'} dark />
+                  <KV label="Principal" value={BappyUtil.fmtGBPCompact(account.principal)} dark />
+                  {!!account.repaymentAmount && <KV label="Per payment"  value={BappyUtil.fmtGBP(account.repaymentAmount)} dark />}
+                  {!!account.numPayments     && <KV label="Payments"     value={String(account.numPayments)} dark />}
+                  {!!account.startDate       && <KV label="Start"        value={BappyUtil.fmtDateShort(account.startDate)} dark />}
+                  {!!account.endDate         && <KV label="End"          value={BappyUtil.fmtDateShort(account.endDate)} dark />}
+                </div>
+                {/* Loan progress bar — shown when start + end date are defined */}
+                {account.startDate && account.endDate && (() => {
+                  const start   = new Date(account.startDate).getTime();
+                  const end     = new Date(account.endDate).getTime();
+                  const now     = BappyUtil.today().getTime();
+                  const pct     = Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+                  const daysLeft = Math.max(0, Math.round((end - now) / 86400000));
+                  const paymentsLeft = account.numPayments
+                    ? Math.max(0, account.numPayments - Math.round(((now - start) / 86400000) / (30.44)))
+                    : null;
+                  return (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'rgba(255,255,255,0.55)', marginBottom: 5, letterSpacing: 0.6 }}>
+                        <span>NOW</span>
+                        <span>TARGET · {BappyUtil.fmtDateShort(account.endDate)}</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: pct + '%', borderRadius: 999, background: 'linear-gradient(90deg, #03BCA5, #02A8B9)', transition: 'width 0.4s' }} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, fontSize: 11 }}>
+                        <span style={{ color: 'rgba(255,255,255,0.7)' }}>{pct.toFixed(0)}% of term complete</span>
+                        <span style={{ color: 'rgba(255,255,255,0.55)' }}>
+                          {paymentsLeft !== null ? `~${paymentsLeft} payments left` : `${daysLeft} days left`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
             )}
             {account.type === 'savings' && (
               <div style={{ marginTop: 10 }}>
@@ -287,34 +320,98 @@ function KV({ label, value, dark }) {
 function LedgerScreen() {
   const { state } = useBappy();
   const route = useRoute();
-  const [filter, setFilter] = React.useState('all');
-  const filtered = state.transactions
-    .filter(t => filter === 'all' || t.accountId === filter)
+  const [accountFilter, setAccountFilter] = React.useState('all');
+  const [query,         setQuery]         = React.useState('');
+  const [dirFilter,     setDirFilter]     = React.useState('all');
+  const [timeFilter,    setTimeFilter]    = React.useState('all');
+  const todayStr = BappyUtil.today().toISOString().slice(0, 10);
+
+  const norm = s => (s || '').toLowerCase();
+
+  // Time cutoff
+  const timeCutoff = (() => {
+    if (timeFilter === 'month')   { const d = new Date(BappyUtil.today()); d.setUTCDate(1); return d.toISOString().slice(0, 10); }
+    if (timeFilter === '3months') { const d = new Date(BappyUtil.today()); d.setUTCMonth(d.getUTCMonth() - 3); return d.toISOString().slice(0, 10); }
+    return null;
+  })();
+
+  const allFiltered = state.transactions
+    .filter(t => accountFilter === 'all' || t.accountId === accountFilter)
+    .filter(t => !query || norm(t.description).includes(norm(query)))
+    .filter(t => dirFilter === 'all' || t.direction === dirFilter ||
+      (dirFilter === 'expense' && (t.direction === 'expense' || t.direction === 'transfer')) ||
+      (dirFilter === 'income'  && (t.direction === 'income'  || t.direction === 'transfer-in')))
+    .filter(t => !timeCutoff || t.date >= timeCutoff)
     .sort((a, b) => b.date.localeCompare(a.date));
-  // Group by date
+
+  // Split into upcoming (scheduled future) and posted (past/today)
+  const upcoming  = allFiltered.filter(t => t.status === 'scheduled');
+  const posted    = allFiltered.filter(t => t.status !== 'scheduled');
+
+  // Group posted by date
   const groups = {};
-  filtered.forEach(t => {
-    groups[t.date] = groups[t.date] || [];
-    groups[t.date].push(t);
-  });
+  posted.forEach(t => { groups[t.date] = groups[t.date] || []; groups[t.date].push(t); });
+
+  const hasActiveFilter = query || dirFilter !== 'all' || timeFilter !== 'all' || accountFilter !== 'all';
+
   return (
     <div style={{ paddingBottom: 140 }}>
-      <ScreenHeader title="Ledger" leading="back" />
-      <div style={{ padding: '0 16px 12px', display: 'flex', gap: 6, overflowX: 'auto' }} className="bappy-scroll">
-        <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>All</FilterChip>
+      <ScreenHeader title="Ledger" leading="back" subtitle={hasActiveFilter ? `${posted.length} result${posted.length !== 1 ? 's' : ''}` : undefined} />
+
+      {/* Search bar */}
+      <div style={{ padding: '0 16px 8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, background: 'var(--c-ice-wash)', border: '1px solid var(--c-border)' }}>
+          <Icon name="search" size={16} color="var(--c-slate-mute)" />
+          <input
+            value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Search transactions…"
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 14, color: 'var(--c-deep-ink)' }}
+          />
+          {query && <button onClick={() => setQuery('')} style={{ color: 'var(--c-slate-mute)', border: 'none', background: 'none', padding: '0 2px', fontSize: 18, lineHeight: 1, cursor: 'pointer' }}>×</button>}
+        </div>
+      </div>
+
+      {/* Account filter */}
+      <div style={{ padding: '0 16px 6px', display: 'flex', gap: 6, overflowX: 'auto' }} className="bappy-scroll">
+        <FilterChip active={accountFilter === 'all'} onClick={() => setAccountFilter('all')}>All accounts</FilterChip>
         {state.accounts.map(a => (
-          <FilterChip key={a.id} active={filter === a.id} onClick={() => setFilter(a.id)}>{a.name}</FilterChip>
+          <FilterChip key={a.id} active={accountFilter === a.id} onClick={() => setAccountFilter(a.id)}>{a.name}</FilterChip>
         ))}
       </div>
+
+      {/* Direction + time filters */}
+      <div style={{ padding: '0 16px 12px', display: 'flex', gap: 6, overflowX: 'auto' }} className="bappy-scroll">
+        <FilterChip active={dirFilter === 'all'}     onClick={() => setDirFilter('all')}>All</FilterChip>
+        <FilterChip active={dirFilter === 'expense'} onClick={() => setDirFilter('expense')}>Expenses</FilterChip>
+        <FilterChip active={dirFilter === 'income'}  onClick={() => setDirFilter('income')}>Income</FilterChip>
+        <div style={{ width: 1, background: 'var(--c-border)', margin: '0 2px', flexShrink: 0 }} />
+        <FilterChip active={timeFilter === 'all'}     onClick={() => setTimeFilter('all')}>All time</FilterChip>
+        <FilterChip active={timeFilter === 'month'}   onClick={() => setTimeFilter('month')}>This month</FilterChip>
+        <FilterChip active={timeFilter === '3months'} onClick={() => setTimeFilter('3months')}>Last 3 months</FilterChip>
+      </div>
+
+      {/* Upcoming / scheduled section */}
+      {upcoming.length > 0 && (
+        <div style={{ padding: '0 16px 14px' }}>
+          <div style={{ fontSize: 11, color: 'var(--c-ocean-teal)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, padding: '0 4px 6px' }}>
+            Upcoming · not yet posted
+          </div>
+          <Card padding={0} style={{ border: '1px solid var(--c-haze-teal)', background: 'var(--c-ice-wash)' }}>
+            {upcoming.map((t, i) => (
+              <TxnListRow key={t.id} txn={t} last={i === upcoming.length - 1}
+                onClick={() => route.openSheet({ kind: 'edit-txn', txnId: t.id })} />
+            ))}
+          </Card>
+        </div>
+      )}
+
+      {/* Posted transactions grouped by date */}
       <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {Object.keys(groups).map(date => {
+        {Object.keys(groups).sort((a, b) => b.localeCompare(a)).map(date => {
           const total = groups[date].reduce((s, t) => s + (t.direction === 'income' ? t.amount : -t.amount), 0);
           return (
             <div key={date}>
-              <div style={{
-                display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-                padding: '0 4px 6px',
-              }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '0 4px 6px' }}>
                 <div style={{ fontSize: 12, color: 'var(--c-slate-mute)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1 }}>
                   {BappyUtil.fmtRelativeDate(date)}
                 </div>
@@ -362,8 +459,10 @@ function AddTransactionSheet({ initial = {} }) {
   const [categoryId, setCategoryId] = React.useState('cat-grocery');
   const [description, setDescription] = React.useState('');
   const [date, setDate] = React.useState(BappyUtil.today().toISOString().slice(0, 10));
-  const [isRecurring, setIsRecurring] = React.useState(false);
-  const [recurFreq,   setRecurFreq]   = React.useState('monthly');
+  const [isRecurring,   setIsRecurring]   = React.useState(false);
+  const [recurFreq,     setRecurFreq]     = React.useState('monthly');
+  const [recurEndDate,  setRecurEndDate]  = React.useState('');
+  const [recurMaxPay,   setRecurMaxPay]   = React.useState('');
 
   // Make sure transferToId always differs from accountId
   React.useEffect(() => {
@@ -421,12 +520,14 @@ function AddTransactionSheet({ initial = {} }) {
       dispatch({
         type: 'ADD_RECURRING',
         rec: {
-          payee:     txnDescription,
+          payee:       txnDescription,
           accountId, amount: amt, direction,
-          frequency: recurFreq,
-          anchorDay: new Date(date).getUTCDate(),
+          frequency:   recurFreq,
+          anchorDay:   new Date(date).getUTCDate(),
           categoryId, active: true, source: 'manual',
-          nextDue:   date, baseline: amt,
+          nextDue:     date, baseline: amt,
+          ...(recurEndDate  && { endDate:     recurEndDate }),
+          ...(recurMaxPay   && { maxPayments: parseInt(recurMaxPay, 10) || undefined }),
         },
       });
     }
@@ -536,7 +637,7 @@ function AddTransactionSheet({ initial = {} }) {
                 <Toggle value={isRecurring} onChange={v => setIsRecurring(v)} />
               </div>
               {isRecurring && (
-                <div style={{ padding: '0 14px 12px' }}>
+                <div style={{ padding: '0 14px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <Segmented
                     options={[
                       { value: 'weekly',   label: 'Weekly' },
@@ -545,6 +646,18 @@ function AddTransactionSheet({ initial = {} }) {
                     ]}
                     value={recurFreq} onChange={setRecurFreq}
                   />
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginBottom: 4 }}>End date (optional)</div>
+                      <input type="date" value={recurEndDate} onChange={e => setRecurEndDate(e.target.value)}
+                        style={{ width: '100%', fontSize: 13, border: '1px solid var(--c-border)', borderRadius: 8, padding: '5px 8px', background: 'var(--c-snow-mist)' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginBottom: 4 }}>Max payments (optional)</div>
+                      <input type="number" inputMode="numeric" value={recurMaxPay} onChange={e => setRecurMaxPay(e.target.value)}
+                        placeholder="e.g. 12" style={{ width: '100%', fontSize: 13, border: '1px solid var(--c-border)', borderRadius: 8, padding: '5px 8px', background: 'var(--c-snow-mist)' }} />
+                    </div>
+                  </div>
                 </div>
               )}
             </>
@@ -1331,4 +1444,144 @@ function EditAccountSheet({ accountId }) {
   );
 }
 
-export { AccountsScreen, AccountDetailScreen, LedgerScreen, AddTransactionSheet, AddAccountSheet, EditTransactionSheet, EditAccountSheet };
+// ─── Link Transfers sheet ────────────────────────────────────
+function LinkTransfersSheet() {
+  const { state, dispatch } = useBappy();
+  const route = useRoute();
+
+  const unlinked = state.transactions.filter(t =>
+    t.categoryId === 'cat-transfer' && !t.transferToId &&
+    (t.direction === 'expense' || t.direction === 'income')
+  );
+
+  // Build rows: each unlinked txn paired with its best candidate (if any)
+  const rows = unlinked.map(txn => {
+    const candidates = findTransferCandidates(state.transactions, txn);
+    return { txn, best: candidates[0] || null };
+  });
+
+  // Exact matches: score >= 5 (exact amount + same date)
+  const exactPairs = rows
+    .filter(r => r.best && r.best._score >= 5)
+    .reduce((acc, r) => {
+      // Deduplicate — each pair appears once (expense side owns it)
+      if (r.txn.direction === 'expense') acc.push(r);
+      return acc;
+    }, []);
+
+  const handleLink = (outId, inId) => {
+    dispatch({ type: 'LINK_TRANSFER', outId, inId });
+  };
+
+  const handleLinkAll = () => {
+    exactPairs.forEach(({ txn, best }) => {
+      const outId = txn.direction === 'expense' ? txn.id : best.id;
+      const inId  = txn.direction === 'income'  ? txn.id : best.id;
+      dispatch({ type: 'LINK_TRANSFER', outId, inId });
+    });
+  };
+
+  if (unlinked.length === 0) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: 'var(--c-slate-mute)' }}>
+        <Icon name="check" size={32} color="var(--c-seafoam)" style={{ marginBottom: 12 }} />
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--c-deep-ink)' }}>All transfers linked</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+      {/* Bulk action */}
+      {exactPairs.length > 0 && (
+        <Card padding={12} style={{ background: 'rgba(3,188,165,0.08)', border: '1px solid var(--c-haze-teal)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.4 }}>
+              <strong style={{ color: 'var(--c-deep-ink)' }}>{exactPairs.length} exact match{exactPairs.length !== 1 ? 'es' : ''}</strong>
+              {' '}found — same date &amp; amount.
+            </div>
+            <button
+              onClick={handleLinkAll}
+              style={{
+                padding: '8px 14px', borderRadius: 999, flexShrink: 0,
+                background: 'var(--c-ocean-teal)', color: '#fff',
+                fontSize: 13, fontWeight: 600,
+              }}
+            >
+              Link all
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* Per-transaction rows */}
+      <Card padding={0}>
+        {rows.map(({ txn, best }, i) => {
+          const acc = state.accounts.find(a => a.id === txn.accountId);
+          const bestAcc = best ? state.accounts.find(a => a.id === best.accountId) : null;
+          const isExact = best?._score >= 5;
+          const outId = txn.direction === 'expense' ? txn.id : best?.id;
+          const inId  = txn.direction === 'income'  ? txn.id : best?.id;
+
+          return (
+            <div key={txn.id} style={{
+              padding: '12px 14px',
+              borderBottom: i < rows.length - 1 ? '1px solid var(--c-border)' : 'none',
+            }}>
+              {/* This transaction */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: best ? 8 : 0 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-deep-ink)' }}>{acc?.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginTop: 1 }}>
+                    {BappyUtil.fmtDateShort(txn.date)} · {txn.description}
+                  </div>
+                </div>
+                <span className="tnum" style={{ fontSize: 13, fontWeight: 500, color: txn.direction === 'expense' ? 'var(--c-coral)' : 'var(--c-seafoam)' }}>
+                  {txn.direction === 'expense' ? '−' : '+'}{BappyUtil.fmtGBP(txn.amount)}
+                </span>
+              </div>
+
+              {/* Best candidate */}
+              {best ? (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 10px', borderRadius: 8,
+                  background: isExact ? 'rgba(3,188,165,0.07)' : 'var(--c-snow-mist)',
+                  border: `1px solid ${isExact ? 'rgba(3,188,165,0.25)' : 'var(--c-border)'}`,
+                }}>
+                  <Icon name="swap" size={13} color={isExact ? 'var(--c-seafoam)' : 'var(--c-slate-mute)'} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-deep-ink)' }}>{bestAcc?.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--c-slate-mute)' }}>{BappyUtil.fmtDateShort(best.date)}</div>
+                  </div>
+                  {isExact && (
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: 'rgba(3,188,165,0.15)', color: 'var(--c-seafoam)', fontWeight: 600, flexShrink: 0 }}>
+                      Exact
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleLink(outId, inId)}
+                    style={{
+                      padding: '5px 12px', borderRadius: 999, flexShrink: 0,
+                      background: 'var(--c-ocean-teal)', color: '#fff',
+                      fontSize: 12, fontWeight: 600,
+                    }}
+                  >
+                    Link
+                  </button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: 'var(--c-slate-mute)', fontStyle: 'italic' }}>
+                  No matching transfer found in other accounts
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </Card>
+    </div>
+  );
+}
+
+export { AccountsScreen, AccountDetailScreen, LedgerScreen, AddTransactionSheet, AddAccountSheet, EditTransactionSheet, EditAccountSheet, LinkTransfersSheet };

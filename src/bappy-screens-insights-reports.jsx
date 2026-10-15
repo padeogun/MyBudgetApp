@@ -2,7 +2,7 @@ import React from 'react'
 import { BAPPY_SEED, BappyUtil, useBappy, BappyContext, BappyAuthContext, BappyProvider, useBappyAuth, BappyAuthProvider } from './bappy-state.jsx'
 import { Icon, BappyLogo, ICON_PATHS } from './bappy-icons.jsx'
 import { IconContainer, Card, Tag, ProgressBar, Button, Sheet, SectionHeader, ListRow, SeverityDot, ChannelPill, EmptyState, Toggle, Segmented, Stepper, tintBg } from './bappy-primitives.jsx'
-import { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve } from './bappy-charts.jsx'
+import { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve, useContainerWidth } from './bappy-charts.jsx'
 import { BappyRouter, BappyRouteContext, useRoute, ScreenHeader, TabBar, FAB } from './bappy-nav.jsx'
 // Bappy — Insights "Other reports": By category, Summaries
 
@@ -260,7 +260,7 @@ function SummariesScreen() {
       <SectionHeader>6-month trend</SectionHeader>
       <div style={{ padding: '0 16px' }}>
         <Card padding={16}>
-          <SummaryTrendChart months={months} width={310} height={150} />
+          <SummaryTrendChart months={months} height={150} />
           <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--c-seafoam)' }} />
@@ -341,7 +341,8 @@ function SummaryStat({ label, value, dark, tone }) {
 }
 
 // ─── Trend chart (income vs expenses bars + net line) ────────
-function SummaryTrendChart({ months, width = 310, height = 150 }) {
+function SummaryTrendChart({ months, height = 150 }) {
+  const [ref, width] = useContainerWidth(310);
   const padL = 28, padR = 8, padT = 12, padB = 22;
   const W = width - padL - padR, H = height - padT - padB;
   const maxVal = Math.max(1, ...months.map(m => Math.max(m.income, m.expenses)));
@@ -360,6 +361,7 @@ function SummaryTrendChart({ months, width = 310, height = 150 }) {
   const netPath = netPoints.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
 
   return (
+    <div ref={ref} style={{ width: '100%' }}>
     <svg width={width} height={height}>
       {/* baseline */}
       <line x1={padL} x2={padL + W} y1={padT + H} y2={padT + H} stroke="var(--c-border)" strokeWidth="1" />
@@ -384,6 +386,7 @@ function SummaryTrendChart({ months, width = 310, height = 150 }) {
         <circle key={i} cx={p.x} cy={p.y} r="3" fill="#fff" stroke="var(--c-ocean-teal)" strokeWidth="1.6" />
       ))}
     </svg>
+    </div>
   );
 }
 
@@ -494,7 +497,8 @@ function computeNetWorthHistory(state, monthCount = 6) {
 
 // ─── Net Worth SVG chart ─────────────────────────────────
 // Grouped bar chart (asset bars up, liability bars down) + net worth line overlay
-function NetWorthChart({ history, width = 310, height = 180 }) {
+function NetWorthChart({ history, height = 180 }) {
+  const [ref, width] = useContainerWidth(310);
   const padL = 40, padR = 8, padT = 16, padB = 24
   const W = width - padL - padR
   const H = height - padT - padB
@@ -523,6 +527,7 @@ function NetWorthChart({ history, width = 310, height = 180 }) {
   const gridColor = '#E0F4F6'
 
   return (
+    <div ref={ref} style={{ width: '100%' }}>
     <svg width={width} height={height}>
       {/* Horizontal grid lines at max, zero, and min */}
       <line x1={padL} x2={padL + W} y1={padT}  y2={padT}  stroke={gridColor} strokeDasharray="2,4" />
@@ -574,6 +579,7 @@ function NetWorthChart({ history, width = 310, height = 180 }) {
           fill="#fff" stroke="#02A8B9" strokeWidth="2" />
       ))}
     </svg>
+    </div>
   )
 }
 
@@ -684,7 +690,7 @@ function NetWorthScreen() {
       <SectionHeader>6-month history</SectionHeader>
       <div style={{ padding: '0 16px' }}>
         <Card padding={16}>
-          <NetWorthChart history={history} width={310} height={180} />
+          <NetWorthChart history={history} height={180} />
           {/* Legend */}
           <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11 }}>
             {[

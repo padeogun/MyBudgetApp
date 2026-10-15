@@ -88,6 +88,7 @@ export const BAPPY_SEED = {
   transactions:   [],
   recurring:      [],
   budgets:        [],
+  goals:          [],
   suggestions:    [],
   nudges:         [],
   nudgeRules:     DEFAULT_NUDGE_RULES,

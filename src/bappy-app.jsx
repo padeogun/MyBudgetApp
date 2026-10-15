@@ -1,15 +1,15 @@
 // Bappy — main App component, route → screen mapping, sheet host
 import React from 'react'
 import { useBappy, BappyProvider, useBappyAuth, BappyAuthProvider } from './bappy-state.jsx'
-import { BappyRouter, useRoute, TabBar, FAB } from './bappy-nav.jsx'
+import { BappyRouter, useRoute, TabBar, Sidebar, FAB, useDesktop } from './bappy-nav.jsx'
 import { Sheet } from './bappy-primitives.jsx'
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakColor, TweakToggle, TweakButton } from './tweaks-panel.jsx'
 import { HomeScreen, NudgesScreen, NudgeDetailScreen } from './bappy-screens-home.jsx'
-import { AccountsScreen, AccountDetailScreen, LedgerScreen, AddTransactionSheet, AddAccountSheet, EditTransactionSheet, EditAccountSheet } from './bappy-screens-money.jsx'
-import { PlanHomeScreen, BudgetsScreen, BudgetDetailScreen, RecurringScreen, SuggestionsScreen } from './bappy-screens-plan.jsx'
+import { AccountsScreen, AccountDetailScreen, LedgerScreen, AddTransactionSheet, AddAccountSheet, EditTransactionSheet, EditAccountSheet, LinkTransfersSheet } from './bappy-screens-money.jsx'
+import { PlanHomeScreen, BudgetsScreen, BudgetDetailScreen, RecurringScreen, SuggestionsScreen, EditRecurringSheet, GoalsScreen, AddGoalSheet, EditGoalSheet } from './bappy-screens-plan.jsx'
 import { InsightsHomeScreen, ForecastScreen, DebtPerScreen, DebtAllScreen, AvailableScreen, UpcomingScreen } from './bappy-screens-insights.jsx'
 import { ByCategoryScreen, SummariesScreen, NetWorthScreen } from './bappy-screens-insights-reports.jsx'
-import { MoreHomeScreen, RulesScreen, ImportSheet, MoreProfileScreen, MoreGeneralScreen, MoreCategoriesScreen, MorePreferencesScreen, MoreNudgeTypesScreen, MoreEmailScreen, MorePushScreen, MoreBackupScreen, MoreAboutScreen } from './bappy-screens-more.jsx'
+import { MoreHomeScreen, RulesScreen, ImportSheet, MoreProfileScreen, MoreGeneralScreen, MoreCategoriesScreen, MorePreferencesScreen, MoreNudgeTypesScreen, MoreEmailScreen, MorePushScreen, MoreBackupScreen, MoreAboutScreen, MoreWhatsNewScreen, MoreFAQScreen, MorePrivacyScreen, MoreTermsScreen, MoreLicensesScreen } from './bappy-screens-more.jsx'
 import { LoginScreen } from './bappy-screens-login.jsx'
 
 const SCREENS = {
@@ -24,6 +24,7 @@ const SCREENS = {
   'budget-detail':   () => <BudgetDetailScreen />,
   'recurring':       () => <RecurringScreen />,
   'suggestions':     () => <SuggestionsScreen />,
+  'goals':           () => <GoalsScreen />,
   'insights-home':   () => <InsightsHomeScreen />,
   'forecast':        () => <ForecastScreen />,
   'debt-per':        () => <DebtPerScreen />,
@@ -41,6 +42,11 @@ const SCREENS = {
   'more-push':       () => <MorePushScreen />,
   'more-backup':     () => <MoreBackupScreen />,
   'more-about':      () => <MoreAboutScreen />,
+  'more-whats-new':  () => <MoreWhatsNewScreen />,
+  'more-faq':        () => <MoreFAQScreen />,
+  'more-privacy':    () => <MorePrivacyScreen />,
+  'more-terms':      () => <MoreTermsScreen />,
+  'more-licenses':   () => <MoreLicensesScreen />,
   'by-category':     () => <ByCategoryScreen />,
   'summaries':       () => <SummariesScreen />,
   'net-worth':       () => <NetWorthScreen />,
@@ -102,10 +108,68 @@ function AppShell() {
   )
 }
 
+const SHEET_TITLES = {
+  'add':            'New transaction',
+  'transfer':       'Transfer',
+  'import':         'Import transactions',
+  'add-account':    'Add account',
+  'edit-txn':       'Edit transaction',
+  'edit-account':   'Edit account',
+  'link-transfers': 'Link transfers',
+  'edit-recurring': 'Edit recurring',
+  'add-goal':       'New goal',
+  'edit-goal':      'Edit goal',
+}
+
+function AppSheetContents({ sheet }) {
+  if (!sheet) return null
+  if (sheet.kind === 'add')           return <AddTransactionSheet initial={{ accountId: sheet.accountId }} />
+  if (sheet.kind === 'transfer')      return <AddTransactionSheet initial={{ direction: 'transfer', accountId: sheet.accountId }} />
+  if (sheet.kind === 'import')        return <ImportSheet />
+  if (sheet.kind === 'add-account')   return <AddAccountSheet />
+  if (sheet.kind === 'edit-txn')      return <EditTransactionSheet key={sheet.txnId} txnId={sheet.txnId} />
+  if (sheet.kind === 'edit-account')  return <EditAccountSheet key={sheet.accountId} accountId={sheet.accountId} />
+  if (sheet.kind === 'link-transfers') return <LinkTransfersSheet />
+  if (sheet.kind === 'edit-recurring') return <EditRecurringSheet key={sheet.recurringId} recurringId={sheet.recurringId} />
+  if (sheet.kind === 'add-goal')      return <AddGoalSheet />
+  if (sheet.kind === 'edit-goal')     return <EditGoalSheet key={sheet.goalId} goalId={sheet.goalId} />
+  return null
+}
+
 function AppBody() {
-  const route = useRoute()
-  const screen = SCREENS[route.current.name]
-  const showFAB = FAB_ROUTES.has(route.current.name)
+  const route     = useRoute()
+  const isDesktop = useDesktop()
+  const screen    = SCREENS[route.current.name]
+  const showFAB   = FAB_ROUTES.has(route.current.name)
+
+  const sheetEl = (
+    <Sheet open={!!route.sheet} onClose={route.closeSheet}
+      title={SHEET_TITLES[route.sheet?.kind] || ''}
+      height="92%">
+      <AppSheetContents sheet={route.sheet} />
+    </Sheet>
+  )
+
+  if (isDesktop) {
+    return (
+      <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', background: 'var(--c-snow-mist)' }}>
+        <Sidebar />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+          <SyncBanner />
+          <div className="bappy-scroll" style={{ flex: 1, overflowY: 'auto' }}
+            key={route.current.name + JSON.stringify(route.current.params)}>
+            <div style={{ maxWidth: 820, margin: '0 auto', paddingBottom: 48, animation: 'bappy-fade 0.2s ease' }}>
+              {screen ? screen() : <div style={{ padding: 24, color: 'var(--c-slate-mute)' }}>Unknown route: {route.current.name}</div>}
+            </div>
+          </div>
+          {showFAB && <FAB onClick={() => route.openSheet({ kind: 'add' })} label="Add transaction" />}
+          {sheetEl}
+        </div>
+      </div>
+    )
+  }
+
+  // Mobile layout (original)
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: 'var(--c-snow-mist)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0 }} />
@@ -116,23 +180,7 @@ function AppBody() {
       </div>
       {showFAB && <FAB onClick={() => route.openSheet({ kind: 'add' })} label="Add transaction" />}
       <TabBar />
-      <Sheet open={!!route.sheet} onClose={route.closeSheet}
-        title={
-          route.sheet?.kind === 'add'          ? 'New transaction' :
-          route.sheet?.kind === 'transfer'     ? 'Transfer' :
-          route.sheet?.kind === 'import'       ? 'Excel import' :
-          route.sheet?.kind === 'add-account'  ? 'Add account' :
-          route.sheet?.kind === 'edit-txn'     ? 'Edit transaction' :
-          route.sheet?.kind === 'edit-account' ? 'Edit account' : ''
-        }
-        height="92%">
-        {route.sheet?.kind === 'add'          && <AddTransactionSheet initial={{ accountId: route.sheet.accountId }} />}
-        {route.sheet?.kind === 'transfer'     && <AddTransactionSheet initial={{ direction: 'transfer', accountId: route.sheet.accountId }} />}
-        {route.sheet?.kind === 'import'       && <ImportSheet />}
-        {route.sheet?.kind === 'add-account'  && <AddAccountSheet />}
-        {route.sheet?.kind === 'edit-txn'     && <EditTransactionSheet key={route.sheet.txnId}     txnId={route.sheet.txnId} />}
-        {route.sheet?.kind === 'edit-account' && <EditAccountSheet   key={route.sheet.accountId} accountId={route.sheet.accountId} />}
-      </Sheet>
+      {sheetEl}
     </div>
   )
 }

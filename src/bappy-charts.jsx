@@ -16,17 +16,19 @@ const chartPalette = {
 };
 
 // ─── Sparkline ───────────────────────────────────────────────
-function Sparkline({ values, width = 100, height = 32, color = chartPalette.primary, fill = true, strokeWidth = 1.5, dots = false }) {
+// Uses viewBox so it fills 100% of its container width naturally.
+// width/height define the internal coordinate space (viewBox); height is also the rendered height.
+function Sparkline({ values, width = 120, height = 32, color = chartPalette.primary, fill = true, strokeWidth = 1.5, dots = false }) {
   if (!values || values.length < 2) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
   const stepX = width / (values.length - 1);
   const points = values.map((v, i) => [i * stepX, height - ((v - min) / range) * (height - 4) - 2]);
-  const linePath = points.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const linePath = splinePath(points);
   const areaPath = linePath + ` L${width} ${height} L0 ${height} Z`;
   return (
-    <svg width={width} height={height}>
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
       {fill && <path d={areaPath} fill={color} opacity={0.12} />}
       <path d={linePath} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
       {dots && points.map((p, i) => (
@@ -34,6 +36,26 @@ function Sparkline({ values, width = 100, height = 32, color = chartPalette.prim
       ))}
     </svg>
   );
+}
+
+// ─── Catmull-Rom → cubic bezier spline ───────────────────────
+// Converts a polyline into a smooth SVG cubic bezier path that passes
+// through every point. alpha=1/6 gives the standard Catmull-Rom tension.
+function splinePath(pts, alpha = 1 / 6) {
+  if (pts.length < 2) return '';
+  const d = [`M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    const cp1x = (p1[0] + (p2[0] - p0[0]) * alpha).toFixed(1);
+    const cp1y = (p1[1] + (p2[1] - p0[1]) * alpha).toFixed(1);
+    const cp2x = (p2[0] - (p3[0] - p1[0]) * alpha).toFixed(1);
+    const cp2y = (p2[1] - (p3[1] - p1[1]) * alpha).toFixed(1);
+    d.push(`C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`);
+  }
+  return d.join(' ');
 }
 
 // ─── Area chart (cash flow) ──────────────────────────────────
@@ -51,7 +73,7 @@ function AreaChart({ series, width = 340, height = 180, markers = [], floor, col
   const scaleY = (v) => padT + H - ((v - min) / range) * H;
 
   const pts = series.map((s, i) => [scaleX(i), scaleY(s.balance)]);
-  const linePath = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const linePath = splinePath(pts);
   const areaPath = linePath + ` L${scaleX(series.length - 1)} ${padT + H} L${padL} ${padT + H} Z`;
 
   // Y-axis ticks (4)
@@ -270,7 +292,7 @@ function DebtCurve({ baseline, withExtra, width = 340, height = 160 }) {
   const sx = (m) => padL + (m / (allMonths - 1)) * W;
   const sy = (v) => padT + H - (v / maxBal) * H;
 
-  const toPath = (curve) => curve.map((p, i) => (i === 0 ? 'M' : 'L') + sx(p.month) + ' ' + sy(p.balance)).join(' ');
+  const toPath = (curve) => splinePath(curve.map(p => [sx(p.month), sy(p.balance)]));
 
   const baseEnd = baseline[baseline.length - 1];
   const extraEnd = withExtra[withExtra.length - 1];

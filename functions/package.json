@@ -1,0 +1,14 @@
+{
+  "name": "bappy-functions",
+  "description": "Bappy Cloud Functions",
+  "scripts": {
+    "deploy": "firebase deploy --only functions"
+  },
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0",
+    "nodemailer": "^6.9.0"
+  }
+}

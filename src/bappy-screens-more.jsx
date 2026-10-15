@@ -244,7 +244,7 @@ function MoreHomeScreen() {
 
       <SettingsGroup title="About">
         <SettingsRow icon="info"     title="About Bappy"
-          subtitle="v0.1.0 · build f3a2c"
+          subtitle="v1.0.0 · May 2026"
           onClick={() => route.push('more-about')} last />
       </SettingsGroup>
 
@@ -868,7 +868,6 @@ function MoreBackupScreen() {
 
   const handlePush = async () => {
     if (busy) return;
-    if (!confirm('Push your current local data to Firebase? This will overwrite whatever is stored in the cloud with what you have on this device.')) return;
     setBusy('push');
     try {
       await pushToSheets();
@@ -999,6 +998,16 @@ function MoreBackupScreen() {
             <span>·</span>
             <span>~{sizeKB} KB</span>
           </div>
+          {auth.user?.email && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--c-slate-mute)' }}>
+              Signed in as <strong style={{ color: 'var(--c-deep-ink)' }}>{auth.user.email}</strong>
+            </div>
+          )}
+          {state.lastModifiedAt > 0 && (
+            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--c-slate-mute)' }}>
+              Local data last modified: {new Date(state.lastModifiedAt).toLocaleString('en-GB')}
+            </div>
+          )}
         </Card>
       </div>
 
@@ -1083,49 +1092,325 @@ function MoreBackupScreen() {
 
 // ─── More: About ──────────────────────────────────────────
 function MoreAboutScreen() {
+  const route = useRoute()
   return (
     <div style={{ paddingBottom: 140 }}>
       <ScreenHeader title="About" leading="back" subtitle="Bappy" />
+
+      {/* Logo + version */}
       <div style={{
-        padding: '16px 24px 24px', textAlign: 'center',
+        padding: '16px 24px 28px', textAlign: 'center',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
       }}>
-        <svg width="56" height="56" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" fill="none" stroke="#02A8B9" strokeWidth="1.4" opacity="0.4" />
-          <circle cx="12" cy="12" r="6"  fill="none" stroke="#02A8B9" strokeWidth="1.4" opacity="0.75" />
+        <svg width="60" height="60" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" fill="none" stroke="#02A8B9" strokeWidth="1.4" opacity="0.35" />
+          <circle cx="12" cy="12" r="6"  fill="none" stroke="#02A8B9" strokeWidth="1.4" opacity="0.7" />
           <circle cx="12" cy="12" r="2.6" fill="#02A8B9" />
-          <circle cx="20" cy="6" r="1.8" fill="#02A8B9" />
+          <circle cx="20" cy="6"  r="1.8" fill="#02A8B9" />
         </svg>
-        <div style={{ fontSize: 22, fontWeight: 500, color: 'var(--c-deep-ink)', letterSpacing: -0.3 }}>Bappy</div>
-        <div style={{ fontSize: 12, color: 'var(--c-slate-mute)' }}>Version 0.1.0 · build f3a2c · 24 May 2026</div>
+        <div style={{ fontSize: 24, fontWeight: 500, color: 'var(--c-deep-ink)', letterSpacing: -0.3 }}>Bappy</div>
+        <div style={{ fontSize: 12, color: 'var(--c-slate-mute)' }}>Version 1.0.0 · May 2026</div>
+        <div style={{
+          marginTop: 2, padding: '6px 14px', borderRadius: 999,
+          background: 'rgba(2,168,185,0.08)', border: '1px solid var(--c-haze-teal)',
+          fontSize: 11, color: 'var(--c-ocean-teal)', fontWeight: 500,
+        }}>
+          Your finances. Your data. Your device.
+        </div>
       </div>
+
       <SettingsGroup title="Resources">
-        <SettingsRow icon="spark"    title="What's new"
-          subtitle="May release · forecasts, debt sims"
-          onClick={() => window.open('https://bappy-app.web.app/changelog', '_blank', 'noopener')} />
-        <SettingsRow icon="info"     title="Help & FAQ"
-          subtitle="Common questions"
-          onClick={() => window.open('https://bappy-app.web.app/help', '_blank', 'noopener')} />
-        <SettingsRow icon="ch-mail"  title="Contact support"
-          subtitle="support@bappy.app"
-          onClick={() => { window.location.href = 'mailto:support@bappy.app'; }} last />
+        <SettingsRow icon="spark"   title="What's new"
+          subtitle="Budgets, Goals, Forecasts & more"
+          onClick={() => route.push('more-whats-new')} />
+        <SettingsRow icon="info"    title="Help & FAQ"
+          subtitle="Common questions answered"
+          onClick={() => route.push('more-faq')} />
+        <SettingsRow icon="ch-mail" title="Contact"
+          subtitle="paul.a.adeogun@gmail.com"
+          onClick={() => { window.location.href = 'mailto:paul.a.adeogun@gmail.com' }} last />
       </SettingsGroup>
+
       <SettingsGroup title="Legal">
-        <SettingsRow icon="shield"   title="Privacy Policy"
-          onClick={() => window.open('https://bappy-app.web.app/privacy', '_blank', 'noopener')} />
-        <SettingsRow icon="card"     title="Terms of Service"
-          onClick={() => window.open('https://bappy-app.web.app/terms', '_blank', 'noopener')} />
-        <SettingsRow icon="acc-bank" title="Open source licenses" subtitle="React, Roboto, xlsx, …" last
-          onClick={() => window.open('https://bappy-app.web.app/licenses', '_blank', 'noopener')} />
+        <SettingsRow icon="shield"  title="Privacy Policy"
+          onClick={() => route.push('more-privacy')} />
+        <SettingsRow icon="shield"  title="Terms of Use"
+          onClick={() => route.push('more-terms')} />
+        <SettingsRow icon="info"    title="Open source notices" subtitle="React, xlsx, Firebase SDK, …" last
+          onClick={() => route.push('more-licenses')} />
       </SettingsGroup>
+
       <div style={{
-        padding: '20px 24px 8px', textAlign: 'center', fontSize: 11,
-        color: 'var(--c-slate-mute)', lineHeight: 1.5,
+        padding: '20px 24px 8px', textAlign: 'center',
+        fontSize: 11, color: 'var(--c-slate-mute)', lineHeight: 1.6,
       }}>
-        Made in London. Bappy is read-only — we never move your money.
+        Made with care in London.<br />
+        Bappy tracks your money — it never touches it.
       </div>
     </div>
-  );
+  )
+}
+
+// ─── More: What's New ─────────────────────────────────────
+const WHATS_NEW = [
+  {
+    version: '1.0.0',
+    date: 'May 2026',
+    tag: 'Latest',
+    tagColor: '#03BCA5',
+    items: [
+      { glyph: 'nav-plan',    tint: '#02A8B9', title: 'Editable budgets',          body: 'Tap any budget to open its detail, then hit Edit to change the amount, period, or delete it entirely.' },
+      { glyph: 'star',        tint: '#F4A535', title: 'Goals & milestones',         body: 'Set savings, debt payoff, net worth, emergency fund, or surplus streak goals. Milestone celebrations at 25 / 50 / 75 / 100%.' },
+      { glyph: 'spark2',      tint: '#F4A535', title: 'Budget suggestions engine',  body: 'Bappy analyses your last 3 months and flags budgets that are too tight, too generous, or missing entirely — with a one-tap apply.' },
+      { glyph: 'nav-plan',    tint: '#02A8B9', title: 'Budget health overview',     body: 'A donut chart at the top of the budgets screen breaks your total envelope into on-track, at-risk, and over segments.' },
+      { glyph: 'refresh',     tint: '#03BCA5', title: 'Recurring pattern detection',body: 'Bappy spots repeating charges in your transaction history and suggests turning them into recurring templates — one tap to accept.' },
+      { glyph: 'nav-insights',tint: '#9C6ADE', title: '90-day cash flow forecast',  body: 'The Forecast screen projects your account balance 90 days out, accounting for all active recurring templates.' },
+      { glyph: 'acc-loan',    tint: '#E8566A', title: 'Debt curve simulator',       body: 'Enter any credit card or loan, set a monthly payment, and see exactly when you\'ll be debt-free and how much interest you\'ll pay.' },
+      { glyph: 'arrow-in',    tint: '#03BCA5', title: 'Scheduled transactions',     body: 'Future-dated transactions are held as scheduled and automatically post to your balance on the day they arrive.' },
+      { glyph: 'swap',        tint: '#02A8B9', title: 'Import rollback',            body: 'Made a bad import? One tap rolls back the entire batch and restores your balances to exactly where they were.' },
+    ],
+  },
+  {
+    version: '0.9.0',
+    date: 'April 2026',
+    items: [
+      { glyph: 'acc-bank',    tint: '#02A8B9', title: 'Firebase real-time sync',   body: 'Sign in with Google and your data syncs instantly across all your devices. Changes on one device appear on another within seconds.' },
+      { glyph: 'nav-insights',tint: '#9C6ADE', title: 'By-category reports',       body: 'Drill into any spending category to see month-by-month trends and the transactions behind each bar.' },
+      { glyph: 'nav-insights',tint: '#9C6ADE', title: 'Net worth tracking',        body: 'A running total of all your accounts — assets minus liabilities — charted over time.' },
+      { glyph: 'bolt',        tint: '#E8566A', title: 'Nudge engine',              body: 'Configurable nudges alert you to over-budget spend, upcoming bills, low balances, and detected recurring charges.' },
+    ],
+  },
+  {
+    version: '0.8.0',
+    date: 'March 2026',
+    items: [
+      { glyph: 'nav-money',   tint: '#02A8B9', title: 'CSV import',               body: 'Import transactions from any UK bank via CSV. Bappy auto-maps columns, detects duplicates, and links transfer pairs.' },
+      { glyph: 'refresh',     tint: '#03BCA5', title: 'Recurring templates',       body: 'Set up weekly, monthly, or annual recurring items. Mark as paid to post a transaction and advance the due date automatically.' },
+      { glyph: 'nav-plan',    tint: '#02A8B9', title: 'Budgets',                  body: 'Create monthly, weekly, or annual budgets per category. Live spend is calculated from real transactions — no manual entry needed.' },
+    ],
+  },
+]
+
+function MoreWhatsNewScreen() {
+  return (
+    <div style={{ paddingBottom: 140 }}>
+      <ScreenHeader title="What's new" leading="back" subtitle="Bappy release notes" />
+
+      <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {WHATS_NEW.map(release => (
+          <div key={release.version}>
+            {/* Release header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--c-deep-ink)' }}>
+                v{release.version}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--c-slate-mute)' }}>{release.date}</div>
+              {release.tag && (
+                <span style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+                  background: release.tagColor + '22', color: release.tagColor,
+                  border: `1px solid ${release.tagColor}55`,
+                }}>{release.tag}</span>
+              )}
+            </div>
+
+            {/* Feature cards */}
+            <Card padding={0}>
+              {release.items.map((item, i) => (
+                <div key={i} style={{
+                  display: 'flex', gap: 12, padding: '14px 16px',
+                  borderBottom: i < release.items.length - 1 ? '1px solid var(--c-border)' : 'none',
+                }}>
+                  <IconContainer glyph={item.glyph} tint={item.tint} size={36} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--c-deep-ink)', marginBottom: 3 }}>
+                      {item.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--c-slate-mute)', lineHeight: 1.55 }}>
+                      {item.body}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </Card>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── More: Help & FAQ ─────────────────────────────────────
+const FAQ_ITEMS = [
+  {
+    q: 'Does Bappy connect to my bank?',
+    a: 'No. Bappy never connects directly to your bank. You import transactions yourself via CSV export from your bank\'s website or app. This keeps your banking credentials completely separate from Bappy.',
+  },
+  {
+    q: 'Is my data safe?',
+    a: 'Your data is stored on your device and, if you sign in, synced to your private Firebase account. Bappy staff cannot see your data. You can export or delete it at any time from the Backup screen.',
+  },
+  {
+    q: 'How do I import transactions?',
+    a: 'Go to More → Import. Download a CSV from your bank, then select it in Bappy. The importer auto-detects the column layout for most UK banks. Review the preview, then tap Import to confirm.',
+  },
+  {
+    q: 'Why is my balance wrong after import?',
+    a: 'Check that transfer transactions between your own accounts are correctly linked. Unlinked transfers count as both income and expense, doubling their balance effect. Use the link icon on any transfer transaction to pair it.',
+  },
+  {
+    q: 'What is a scheduled transaction?',
+    a: 'A transaction with a future date is held as "scheduled" — it appears in your upcoming list and forecast but doesn\'t affect your current balance until the date arrives, when it posts automatically.',
+  },
+  {
+    q: 'How do recurring templates work?',
+    a: 'Recurring templates represent regular payments (rent, subscriptions, salary). They appear in the Plan tab and feed the 90-day cash flow forecast. Tap "Mark as paid" when the money moves to post the transaction and advance the due date.',
+  },
+  {
+    q: 'How does budget spend get calculated?',
+    a: 'Bappy counts every expense transaction in the current calendar month that matches the budget\'s category. It reads live from your actual transactions, so the total is always up to date.',
+  },
+  {
+    q: 'What does the budget suggestion engine do?',
+    a: 'It looks at the last 3 months of transactions and identifies budgets that were exceeded 2+ times (too tight), barely used on average (too generous), or categories with regular spend but no budget at all (missing). You can apply or dismiss each suggestion.',
+  },
+  {
+    q: 'How do I sync across devices?',
+    a: 'Sign in with your Google account from the More tab. Once signed in, Bappy pushes your data to Firebase and listens for real-time changes — any update on one device appears on your other devices within seconds.',
+  },
+  {
+    q: 'Can I undo an import?',
+    a: 'Yes. Go to More → Backup → Rollback last import. This removes all transactions from the last import and fully restores your account balances to their previous state.',
+  },
+]
+
+function MoreFAQScreen() {
+  const [open, setOpen] = React.useState(null)
+  return (
+    <div style={{ paddingBottom: 140 }}>
+      <ScreenHeader title="Help & FAQ" leading="back" subtitle="Common questions" />
+      <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {FAQ_ITEMS.map((item, i) => {
+          const isOpen = open === i
+          return (
+            <Card key={i} padding={0} onClick={() => setOpen(isOpen ? null : i)}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--c-deep-ink)', lineHeight: 1.4 }}>
+                    {item.q}
+                  </div>
+                  {isOpen && (
+                    <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.6, marginTop: 8 }}>
+                      {item.a}
+                    </div>
+                  )}
+                </div>
+                <Icon
+                  name={isOpen ? 'chev-up' : 'chev-down'}
+                  size={16} color="var(--c-slate-mute)"
+                  style={{ flexShrink: 0, marginTop: 2 }}
+                />
+              </div>
+            </Card>
+          )
+        })}
+      </div>
+      <div style={{ padding: '20px 24px 8px', textAlign: 'center', fontSize: 12, color: 'var(--c-slate-mute)', lineHeight: 1.5 }}>
+        Still stuck? Email <span
+          style={{ color: 'var(--c-ocean-teal)', cursor: 'pointer' }}
+          onClick={() => { window.location.href = 'mailto:paul.a.adeogun@gmail.com' }}
+        >paul.a.adeogun@gmail.com</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── More: Privacy Policy ─────────────────────────────────
+function MorePrivacyScreen() {
+  return (
+    <div style={{ paddingBottom: 140 }}>
+      <ScreenHeader title="Privacy Policy" leading="back" subtitle="How we handle your data" />
+      <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {[
+          { title: 'What we collect', body: 'Bappy stores the financial data you enter or import — account balances, transactions, budgets, and settings. If you sign in with Google, we also store your Google display name and email address to identify your account.' },
+          { title: 'Where it lives', body: 'Your data is stored on your device (browser storage) and, if you choose to sync, in your private Firebase Firestore document. Each user\'s data is isolated under their unique user ID and is not accessible to other users or Bappy staff.' },
+          { title: 'What we never do', body: 'We never sell your data, share it with advertisers, or connect to your bank. Bappy has no server of its own — all processing happens in your browser.' },
+          { title: 'Third-party services', body: 'Bappy uses Google Firebase for authentication and cloud storage. Firebase is governed by Google\'s Privacy Policy (policies.google.com/privacy). No other third-party services receive your financial data.' },
+          { title: 'Deleting your data', body: 'You can clear all local data by going to More → Backup → Reset app. To delete your cloud data, sign in and use the same reset option — this removes your Firestore document. You may also contact us and we will delete it manually.' },
+          { title: 'Contact', body: 'For privacy questions email paul.a.adeogun@gmail.com.' },
+        ].map((s, i) => (
+          <Card key={i} padding={16}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-deep-ink)', marginBottom: 6 }}>{s.title}</div>
+            <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.65 }}>{s.body}</div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── More: Terms of Use ───────────────────────────────────
+function MoreTermsScreen() {
+  return (
+    <div style={{ paddingBottom: 140 }}>
+      <ScreenHeader title="Terms of Use" leading="back" subtitle="Using Bappy" />
+      <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {[
+          { title: 'Personal use only', body: 'Bappy is provided for personal, non-commercial financial tracking. You may not use Bappy to provide financial services to third parties.' },
+          { title: 'No financial advice', body: 'Bappy is a personal finance tracking tool, not a regulated financial adviser. Nothing in the app constitutes financial, investment, tax, or legal advice. Always consult a qualified professional for financial decisions.' },
+          { title: 'Your data, your responsibility', body: 'You are responsible for the accuracy of data you enter or import. Bappy calculates from what you provide — errors in your input will produce errors in your output.' },
+          { title: 'No warranty', body: 'Bappy is provided "as is" without any warranty. We do not guarantee uninterrupted access or that the app will be free of errors. Use it at your own risk.' },
+          { title: 'Liability', body: 'To the maximum extent permitted by applicable law, Bappy and its creators are not liable for any financial loss, data loss, or other damages arising from your use of the app.' },
+          { title: 'Changes', body: 'These terms may be updated from time to time. Continued use of Bappy after an update constitutes acceptance of the new terms.' },
+          { title: 'Contact', body: 'Questions about these terms? Email paul.a.adeogun@gmail.com.' },
+        ].map((s, i) => (
+          <Card key={i} padding={16}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-deep-ink)', marginBottom: 6 }}>{s.title}</div>
+            <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.65 }}>{s.body}</div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── More: Open Source Notices ────────────────────────────
+const OSS_NOTICES = [
+  { name: 'React',             version: '18.x', license: 'MIT',     owner: 'Meta Platforms, Inc.' },
+  { name: 'Vite',              version: '5.x',  license: 'MIT',     owner: 'Evan You & Vite contributors' },
+  { name: 'xlsx (SheetJS)',    version: '0.18', license: 'Apache 2.0', owner: 'SheetJS LLC' },
+  { name: 'Firebase JS SDK',   version: '10.x', license: 'Apache 2.0', owner: 'Google LLC' },
+  { name: 'Roboto typeface',   version: '—',    license: 'Apache 2.0', owner: 'Google LLC' },
+]
+
+function MoreLicensesScreen() {
+  return (
+    <div style={{ paddingBottom: 140 }}>
+      <ScreenHeader title="Open source notices" leading="back" subtitle="Libraries Bappy is built on" />
+      <div style={{ padding: '0 16px' }}>
+        <Card padding={0}>
+          {OSS_NOTICES.map((lib, i) => (
+            <div key={lib.name} style={{
+              padding: '14px 16px',
+              borderBottom: i < OSS_NOTICES.length - 1 ? '1px solid var(--c-border)' : 'none',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
+                <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--c-deep-ink)' }}>{lib.name}</span>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 999,
+                  background: 'var(--c-ice-wash)', color: 'var(--c-slate-mute)',
+                }}>{lib.license}</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--c-slate-mute)' }}>{lib.owner} · v{lib.version}</div>
+            </div>
+          ))}
+        </Card>
+        <div style={{ padding: '16px 4px', fontSize: 12, color: 'var(--c-slate-mute)', lineHeight: 1.6 }}>
+          Full license texts are available from each project's repository. Bappy's own source code is not open source.
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -1708,4 +1993,4 @@ function ImportSheet() {
   );
 }
 
-export { MoreHomeScreen, RulesScreen, ImportSheet, MoreProfileScreen, MoreGeneralScreen, MoreCategoriesScreen, MorePreferencesScreen, MoreNudgeTypesScreen, MoreEmailScreen, MorePushScreen, MoreBackupScreen, MoreAboutScreen, DEFAULT_NUDGE_TYPES, DEFAULT_PUSH_DEVICES };
+export { MoreHomeScreen, RulesScreen, ImportSheet, MoreProfileScreen, MoreGeneralScreen, MoreCategoriesScreen, MorePreferencesScreen, MoreNudgeTypesScreen, MoreEmailScreen, MorePushScreen, MoreBackupScreen, MoreAboutScreen, MoreWhatsNewScreen, MoreFAQScreen, MorePrivacyScreen, MoreTermsScreen, MoreLicensesScreen, DEFAULT_NUDGE_TYPES, DEFAULT_PUSH_DEVICES };

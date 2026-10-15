@@ -1,8 +1,8 @@
 # MyBudgetApp — Project Brief (v1 — as built)
 
-A personal budget and money management application for tracking income, expenses, accounts, and recurring obligations. The app is **proactive** — it forecasts cash flow, simulates debt payoff, detects recurring patterns, and nudges the user on what matters across in-app, email, and Web Push, governed by a small rules engine.
+A personal budget and money management application for tracking income, expenses, accounts, and recurring obligations. The app is **proactive** — it forecasts cash flow, simulates debt payoff, detects recurring patterns, nudges the user on what matters, and helps build positive financial habits through Goals.
 
-> **Document status**: reflects the implemented v1 codebase as of May 2026. Decisions marked ~~strikethrough~~ were superseded during build; replacements are noted inline.
+> **Document status**: reflects the implemented v1 codebase as of June 2026. Decisions marked ~~strikethrough~~ were superseded during build; replacements are noted inline.
 
 ---
 
@@ -15,6 +15,7 @@ Build a personal budget and money management app that:
 - **Forecasts cash flow** ahead to surface liquidity risk before it bites.
 - **Detects recurring payments** from transaction history so templates are not all manual.
 - **Nudges** about due bills, budget thresholds, unusual spend, and debt-payoff opportunities — across in-app, email, and Web Push, with routing, throttling, and escalation controlled by editable rules.
+- **Encourages positive habits** through Goals — savings milestones, debt payoff targets, net worth growth, emergency fund, and monthly surplus streaks.
 - Runs on device and in a browser, using a single shared cloud data store.
 
 ---
@@ -33,13 +34,17 @@ Build a personal budget and money management app that:
 - Track credit cards with APR, credit limit, current balance, and minimum repayment.
 - Track loans with APR, principal, monthly repayment, number of payments, start date, and end date.
 - Configurable pay schedule (weekly / bi-weekly / monthly).
-- **Debt repayment simulation** per credit card, per loan, and aggregate.
-- **Cash flow forecasting** over a configurable horizon.
-- **Recurring payment detection** from historic and incoming transactions.
+- **Debt repayment simulation** per credit card, per loan, and aggregate; what-if controls for extra repayment and lump sum.
+- **Cash flow forecasting** over a configurable horizon; additional income what-if to find the break-even income level.
+- **Recurring payment detection** from historic and incoming transactions; templates support end dates and max payment limits.
 - **Duplicate detection** on manual add, import, and recurring template creation.
 - **Transfer linking** — import-detected transfers can be linked retroactively; exact matches auto-link on import.
+- **Scheduled transactions** — future-dated transactions do not deplete the account balance until their date; auto-post when the date arrives.
+- **Budget suggestions** — spending pattern analysis surfaces missing budgets, budgets that are too tight, and budgets that are too generous.
+- **Goals** — savings milestones, debt-free targets, net worth milestones, emergency fund, and monthly surplus habit; milestone celebrations.
+- **Client-side nudge generation** — live detection of bills due, budget thresholds, and low balance without a backend worker.
 - **Nudge engine** with delivery across **in-app**, **email**, and **Web Push** channels, governed by an editable **rules engine** (routing / throttling / escalation).
-- Reports and dashboards as graphic cards.
+- Reports and dashboards as graphic cards with smooth spline SVG charts.
 
 ### Out of scope (v1)
 
@@ -64,7 +69,7 @@ Build a personal budget and money management app that:
 
 ## 4. Data & Storage
 
-- **Primary store**: **Firebase Firestore** — one document at `users/{uid}`. The document mirrors the full in-memory app state: accounts, transactions, categories, recurring templates, budgets, nudge rules, settings, and metadata. Firestore documents are capped at 1 MB — ample for a typical single user (~2,000 transactions ≈ 400 KB).
+- **Primary store**: **Firebase Firestore** — one document at `users/{uid}`. The document mirrors the full in-memory app state: accounts, transactions, categories, recurring templates, budgets, goals, nudge rules, settings, and metadata. Firestore documents are capped at 1 MB — ample for a typical single user (~2,000 transactions ≈ 400 KB).
 - **Local store**: IndexedDB (primary) with localStorage fallback — both updated on every state change (debounced 250 ms). The app renders immediately from local store on load.
 - **Real-time sync**: Firestore `onSnapshot` listener starts on sign-in and applies remote changes within ~1–2 seconds. Guards prevent echo-back of local writes.
 - **Conflict resolution**: `lastModifiedAt` epoch-ms timestamp, bumped on every mutation. Remote wins only if `remoteTimestamp > localTimestamp`; otherwise local is pushed to Firestore.
@@ -84,7 +89,7 @@ Build a personal budget and money management app that:
 | id | unique |
 | name | e.g. "Barclays Current" |
 | type | `current` / `savings` / `credit_card` / `loan` |
-| balance | current balance (negative for credit card / loan debt) |
+| balance | **posted balance only** — does not include scheduled (future-dated) transactions |
 | last4 | last 4 digits — current and savings only |
 | limit | credit limit — credit card only |
 | apr | interest rate % — credit card and loan |
@@ -111,7 +116,9 @@ Build a personal budget and money management app that:
 | type | `one_off` / `recurring` / `transfer` |
 | description | free text |
 | recurrenceTemplateId | links back to the recurring template, if any |
-| status | `posted` (all manual/imported) / `scheduled` (projected) |
+| status | `posted` — affects balance; `scheduled` — future date, balance unaffected until date arrives; `cleared` — posted by MARK_RECURRING_PAID |
+
+**Scheduled transaction lifecycle:** If a transaction's date is in the future at the time it is added (manually or via import), it is stored as `status: 'scheduled'` and its amount is **not** applied to the account balance. On every app load and every time the tab regains focus, `AUTO_POST_SCHEDULED` scans for scheduled transactions where `date ≤ today`, applies their balance delta, and promotes their status to `posted`.
 
 ### 5.3 Recurrence Template
 
@@ -127,8 +134,11 @@ Build a personal budget and money management app that:
 | anchorDay | day-of-month |
 | nextDue | ISO date of next due instance |
 | baseline | original amount — used to detect subscription drift |
-| active | bool |
+| active | bool — auto-set to `false` when endDate passes or maxPayments is reached |
 | source | `manual` (user-created) / `detected` (accepted from suggestions) |
+| endDate | optional ISO date — template auto-deactivates when nextDue passes this |
+| maxPayments | optional integer — template auto-deactivates when paymentsMade reaches this |
+| paymentsMade | count of times MARK_RECURRING_PAID has been called on this template |
 
 ### 5.4 Recurrence Suggestion
 
@@ -172,9 +182,38 @@ Custom categories can be added by the user.
 | categoryId | null = overall budget; set = per-category |
 | amount | planned limit |
 
-Actual spend is derived from transactions in the period.
+Actual spend is derived live from transactions in the current period. A budget is "over" only when `spend > amount` (strictly greater than); at exactly 100% it is "at limit" (amber), not "over" (coral).
 
-### 5.7 Nudge
+### 5.7 Goal
+
+| Field | Notes |
+| --- | --- |
+| id | unique (`goal-{timestamp}`) |
+| type | `savings` / `debt_payoff` / `net_worth` / `emergency_fund` / `spending_habit` |
+| title | user-provided label |
+| targetAmount | target £ value — null for `emergency_fund` (auto-calculated) and `spending_habit` |
+| targetMonths | target streak length — `spending_habit` only |
+| targetDate | optional ISO date |
+| linkedAccountId | savings account or debt account to measure against |
+| baselineAmount | snapshot at goal creation — used to compute growth for savings and debt_payoff |
+| milestonesDone | array of milestone % values already celebrated (e.g. `[25, 50]`) |
+| active | bool — set to `false` when achieved |
+| achievedAt | ISO date when 100% was first reached |
+| createdAt | ISO date of creation |
+
+**Progress is computed live from state** — never stored. `BappyUtil.goalProgress(goal, state)` returns `{ current, target, pct, isAchieved, uncelebrated, onTrack }`.
+
+Goal type details:
+
+| Type | `current` value | `target` value |
+| --- | --- | --- |
+| `savings` | `account.balance` | `targetAmount` |
+| `debt_payoff` | `baselineAmount − abs(account.balance)` | `baselineAmount` |
+| `net_worth` | Sum of all account balances | `targetAmount` |
+| `emergency_fund` | `account.balance` | Auto: 3× average monthly expenses (last 90 days) |
+| `spending_habit` | Consecutive months with income > expenses | `targetMonths` |
+
+### 5.8 Nudge
 
 | Field | Notes |
 | --- | --- |
@@ -188,7 +227,7 @@ Actual spend is derived from transactions in the period.
 | createdAt | timestamp |
 | status | `new` / `seen` / `dismissed` / `acted` |
 
-### 5.8 Nudge Rule
+### 5.9 Nudge Rule
 
 Editable rule on one of three axes: **routing**, **throttling**, **escalation**.
 
@@ -204,7 +243,7 @@ Editable rule on one of three axes: **routing**, **throttling**, **escalation**.
 
 15 default rules ship with the app (see §10).
 
-### 5.9 User Settings
+### 5.10 User Settings
 
 | Field | Notes |
 | --- | --- |
@@ -226,6 +265,7 @@ Editable rule on one of three axes: **routing**, **throttling**, **escalation**.
 ### 6.1 Transactions
 
 - Add, edit, and delete transactions; the linked account balance updates accordingly.
+- **Future-dated transactions** are saved with `status: 'scheduled'` and do not affect the account balance. They appear in a dedicated "Upcoming · not yet posted" section at the top of the Ledger and in the Upcoming Payments screen. The balance updates automatically when the date arrives.
 - **Duplicate detection on manual add**: if a transaction with the same account, direction, and amount (±£0.01) exists within the last 3 days, a soft amber warning is shown below the Save button. Non-blocking — the user can proceed.
 - **Transfers** between accounts are stored as **paired transactions** — one `direction: 'transfer'` on the source account and one `direction: 'transfer-in'` on the destination, both with `transferToId` pointing to the other account.
 - Categorise each transaction; allow custom categories.
@@ -237,7 +277,7 @@ Transfers imported from Excel/CSV arrive as two unlinked income/expense transact
 
 1. **Auto-link on import** — exact matches (same date, same amount, both categorised as Transfer, different accounts) are linked automatically during import. No user action needed.
 2. **Manual linking** — any unlinked Transfer-category transaction shows a "Link as transfer" panel in the edit sheet, listing ranked candidates from other accounts (scored by amount match + date proximity). One tap links the pair.
-3. **Near-match banner** — the Accounts screen shows an amber banner with a count of unlinked Transfer transactions, prompting review.
+3. **Link transfers sheet** — the "Tap to link →" banner on the Accounts screen opens a dedicated sheet listing all unlinked transfers with their best candidate; a "Link all" button handles exact matches in bulk.
 
 Linked transfers carry `transferLinked: true` to distinguish them from natively-created transfers.
 
@@ -247,11 +287,11 @@ Recurring items are stored as **templates** with a `nextDue` date. On or before 
 
 Supported frequencies: weekly / monthly / annually.
 
-**Duplicate guard**: before creating a new recurring template (either from Add Transaction or by marking an existing transaction as recurring), the app checks `state.recurring` and `state.suggestions` for templates matching on payee name similarity OR same amount + account + direction. If a conflict is found:
+**End dates and payment limits**: templates can be given an optional `endDate` or `maxPayments`. When either is reached, the template is automatically deactivated (`active: false`). Progress is shown inline on the recurring row.
 
-- An amber warning card is shown listing the matching templates / detected patterns.
-- The save button label changes to **"Create anyway"**.
-- A second tap proceeds, bypassing the guard.
+**Editing**: tapping a recurring row opens an edit sheet pre-filled with all fields including end date, max payments, next due date, category, and account.
+
+**Duplicate guard**: before creating a new recurring template the app checks existing templates and suggestions for conflicts; a two-tap confirm flow is required if a match is found.
 
 Templates carry `source: 'manual'` (user-created) or `source: 'detected'` (accepted from a suggestion).
 
@@ -259,25 +299,36 @@ Templates carry `source: 'manual'` (user-created) or `source: 'detected'` (accep
 
 - Manage current, savings, credit card, and loan accounts.
 - **Credit cards**: APR, credit limit, current balance; available credit (limit − balance); utilisation %.
-- **Loans**: APR, principal, monthly repayment, number of payments, start date, end date.
+- **Loans**: APR, principal, monthly repayment, number of payments, start date, end date. A progress bar from "Now" to the target end date is shown when both dates are set.
 - **Current / savings**: last 4 digits; AER for savings.
-- Live balance per account and aggregate net position (cash − debt).
+- Live balance per account (posted transactions only) and aggregate net position (cash − debt).
 
 ### 6.5 Budgets
 
 - Create overall and per-category budgets.
 - Track actual spend vs budget within the period.
+- A budget at exactly 100% is "at limit" (amber); only spending that **exceeds** the limit is flagged as "over" (coral).
+
+**Budget suggestions** — the Budgets screen analyses the last 3 complete calendar months of transaction data and surfaces up to 5 suggestions:
+
+| Type | Trigger | Suggested action |
+| --- | --- | --- |
+| Missing budget | Category averages ≥ £30/mo but has no budget | Set budget at avg + 10% buffer |
+| Too tight | Budget exceeded in 2+ of last 3 months | Raise to avg spend × 1.05 |
+| Too generous | Budget used < 40% on average over last 3 months | Lower to avg spend × 1.25 |
+
+Tapping "Apply" on a missing-budget suggestion opens the Add Budget sheet pre-filled. For adjustments, the budget is updated immediately. Each suggestion can be dismissed.
 
 ### 6.6 Excel / CSV Import
 
 A 4-step wizard (Upload → Map → Preview → Done):
 
 1. **Upload** — `.xlsx`, `.xls`, or `.csv` accepted.
-2. **Map** — column mapping (date, description, amount, debit/credit split, category). Auto-detection of common header names. Toggle: **"Skip likely duplicates"** (default ON) — skips rows already in the ledger (same account + date + direction + amount ±£0.01 + description, case-insensitive).
-3. **Preview** — first 6 rows with category and duplicate badges.
+2. **Map** — column mapping (date, description, amount, debit/credit split, category). Auto-detection of common header names. Toggle: **"Skip likely duplicates"** (default ON) — skips rows already in the ledger. Toggle: **account selector** and **default category**.
+3. **Preview** — first 6 rows with "from file" and "duplicate" badges.
 4. **Done** — reports: transactions added, duplicates skipped, transfer pairs auto-linked, near-match transfers needing review.
 
-Imported transactions with `category = Transfer` are candidates for transfer linking (§6.2).
+Future-dated rows in the import are saved as `scheduled` and do not affect the account balance.
 
 ### 6.7 Pay Schedule
 
@@ -295,31 +346,71 @@ Automatically detect recurring patterns from transaction history.
 - **User actions**: Accept → creates template; Edit then accept; Dismiss.
 - Runs on import (bulk) and incrementally as new transactions arrive.
 
-### 6.9 Nudge Engine
+### 6.9 Cash Flow Forecast
+
+Projects inflows and outflows over a forward horizon (default 90 days, configurable to 30 / 60 / 90 / 180 days).
+
+- Starts from current posted balance (scheduled transactions excluded).
+- Applies projected recurring templates day by day.
+- **Also applies manually-entered scheduled transactions** on their respective dates — ensuring the forecast includes known future payments without double-counting.
+- **Additional income what-if**: two sliders — extra monthly income (£0–£3,000) and one-off lump sum (£0–£5,000). The app calculates the break-even monthly income needed to keep the balance above the low-balance floor, and shows it with an "Apply" shortcut. Outcome card shows whether the what-if keeps the balance positive.
+
+### 6.10 Nudge Engine
 
 Rules-driven proactive prompts. Nudges are stored in state; delivery is governed by `NudgeRule` entries on three axes — **routing**, **throttling**, **escalation**.
+
+**Client-side live nudge generation**: `computeNudges(state)` runs on every Nudges Inbox render and generates virtual nudge objects (not stored in state) for:
+
+| Nudge type | Trigger |
+| --- | --- |
+| `bill_due` | Any active recurring template due within 7 days |
+| `budget_threshold` (warning) | Budget spend ≥ 80% but not yet over |
+| `budget_threshold` (alert) | Budget spend **strictly over** 100% |
+| `low_balance` | Primary current account balance below `lowBalanceFloor` |
+
+Virtual nudges are merged with any server-generated nudges stored in state. They reappear on each render unless the underlying condition resolves.
 
 Nudge types: `bill_due`, `budget_threshold`, `unusual_spend`, `debt_opportunity`, `low_balance`, `subscription_drift`, `pay_day`, `detection_available`.
 
 Lifecycle: **Generation → Routing pass → Throttling pass → Dispatch → Escalation pass**.
 
+### 6.11 Goals
+
+Goals track progress toward financial aspirations. Progress is computed live from state; no progress values are stored. Milestone celebrations (25% / 50% / 75% / 100%) appear as a highlighted card in the Goals screen and only fire once each (tracked in `milestonesDone`).
+
+**Goal types:**
+
+| Type | Tracks | Auto-configures |
+| --- | --- | --- |
+| Savings | Account balance vs target | — |
+| Debt-free | Amount paid off vs original debt | Baseline from account balance at creation |
+| Net worth | Net position vs milestone | — |
+| Emergency fund | Account balance vs 3× monthly expenses | Target updates automatically as spending changes |
+| Surplus habit | Consecutive months where income > expenses | — |
+
+**Suggested goals**: the Goals screen scans for missing goal types and surfaces personalised setup cards — e.g. if a savings account exists but no emergency fund goal is set, it shows the calculated 3× target and a "Set up" button that opens the Add Goal sheet pre-filled.
+
+**Goal locations**: Plan → Goals tile; Home dashboard shows top 2 active goals as progress bar cards.
+
 ---
 
 ## 7. Reports & Dashboards
 
-All reports rendered as graphic cards. Charts are hand-rolled SVG (no third-party chart library).
+All reports rendered as graphic cards. Charts are hand-rolled SVG using **Catmull-Rom → cubic bezier spline curves** for smooth rendering (no third-party chart library). All charts are **responsive** via `useContainerWidth` (ResizeObserver) or SVG `viewBox` scaling.
 
 | Report | Chart type | Notes |
 | --- | --- | --- |
 | Spending by category | Donut | Top 5 in legend; current month |
-| Cash flow | Area chart | Projected balance curve; configurable horizon |
-| Debt repayment — per debt | Curve | Balance curve, payoff date, extra-payment what-if |
-| Debt repayment — all debts | Stacked bar + curve | Avalanche / Snowball / Even-spread comparison |
-| Budget health | Donut | Committed vs remaining vs free |
-| Net worth | Grouped bar + line | Assets up, liabilities down, net worth overlay |
+| Cash flow | Spline area chart | Smooth curve; configurable horizon; additional income what-if |
+| Debt repayment — per debt | Spline curve | Balance curve, payoff date, extra-payment + lump-sum what-if; "Never clears" state with minimum viable payment hint |
+| Debt repayment — all debts | Stacked area curves | Avalanche / Snowball / Even-spread comparison |
+| Budget health | Donut | Committed vs remaining vs over |
+| Net worth | Grouped bar + spline line | Assets up, liabilities down, net worth overlay |
 | Transaction summaries | Bar chart | Income vs expenses bars + net line; 6-month view |
 | Available to spend | Tile | Headline figure; days to pay day |
-| Upcoming payments | List | Next day / this week / this month / annual |
+| Upcoming payments | List | Merges recurring template projections + manually-entered scheduled transactions |
+
+**Insight tile grid** (Insights home screen): each tile has `minHeight: clamp(130px, 14vw, 220px)`, growing with viewport width to match the Cash Flow chart card on larger screens.
 
 ---
 
@@ -335,7 +426,7 @@ All reports rendered as graphic cards. Charts are hand-rolled SVG (no third-part
 | Auth | **Firebase Auth** (Google sign-in + email/password) |
 | Real-time sync | Firestore `onSnapshot` (`subscribeUserState`) |
 | Hosting | **Firebase Hosting** (`bappy-app.web.app`) |
-| Charts | Hand-rolled SVG — Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve |
+| Charts | Hand-rolled SVG with Catmull-Rom spline — Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve |
 | Icons | Custom SVG path library (`bappy-icons.jsx`) |
 | Excel parsing | `xlsx` (SheetJS) |
 | Styling | Inline styles with CSS custom properties (design tokens) |
@@ -350,19 +441,30 @@ All reports rendered as graphic cards. Charts are hand-rolled SVG (no third-part
 | 2 | Offline behaviour | **IndexedDB + localStorage** — renders immediately from local store; syncs to Firestore on every state change (debounced 1.5 s). |
 | 3 | Tech stack | **React PWA** (Vite), single codebase, deployed on Firebase Hosting. |
 | 4 | Auth | **Firebase Auth** — Google sign-in + email/password. |
-| 5 | Recurring engine | **Templates with nextDue** — user marks paid; nextDue advances by one period. |
-| 6 | Transfers | **Paired transactions** (`direction: 'transfer'` + `'transfer-in'`), linked by `transferToId`. Imported transfers can be linked retroactively via auto-link or manual UI. |
+| 5 | Recurring engine | **Templates with nextDue** — user marks paid; nextDue advances by one period. Auto-deactivation on endDate or maxPayments. |
+| 6 | Transfers | **Paired transactions** (`direction: 'transfer'` + `'transfer-in'`), linked by `transferToId`. Imported transfers can be linked retroactively via auto-link, manual link UI, or bulk Link Transfers sheet. |
 | 7 | Multi-currency | **GBP only.** |
 | 8 | Conflict resolution | **`lastModifiedAt` epoch-ms** — remote wins only if strictly newer; otherwise local pushes to Firestore. |
 | 9 | Default categories | **21 categories** — original 14 + Phone, Car Loan Repayment, Credit Card Repayment, Loan, Car, Children, Shopping. |
 | 10 | Reporting period | **Calendar month** for reports; **pay day** horizon for "available to spend". |
 | 11 | Notification channels | **In-app + Email + Web Push.** SMS dropped. |
-| 12 | Scheduled worker | ~~Google Apps Script~~ — not used. Client-driven in-app nudges only; email/push stubs for future. |
+| 12 | Scheduled worker | ~~Google Apps Script~~ — not used. Client-driven nudge generation; email/push stubs for future. |
 | 13 | Notification dispatch | **Rules engine** on routing / throttling / escalation axes; 15 default rules; editable in-app. |
 | 14 | Real-time sync | **Firestore `onSnapshot`** — listener starts on sign-in, stops on sign-out; echo suppression via 5 s write-cooldown + version check. |
-| 15 | Duplicate detection | **Three-layer guard** — manual-add near-duplicate warning (3-day window), import deduplication (exact match, toggleable), recurring template conflict check (name + amount match against templates and suggestions). |
-| 16 | Transfer linking | **Auto-link on import** (exact matches) + **manual link UI** in edit sheet (ranked candidates) + **near-match banner** on Accounts screen. |
-| 17 | Loan account fields | **repaymentAmount, numPayments, startDate, endDate** added to loan accounts in both Add and Edit sheets. |
+| 15 | Duplicate detection | **Three-layer guard** — manual-add near-duplicate warning (3-day window), import deduplication (exact match, toggleable), recurring template conflict check. |
+| 16 | Transfer linking | **Auto-link on import** (exact matches) + **manual link UI** in edit sheet (ranked candidates) + **near-match banner** + **Link Transfers sheet** with bulk "Link all" for exact matches. |
+| 17 | Loan account fields | **repaymentAmount, numPayments, startDate, endDate** — shown with progress bar in Account Detail when both dates are set. |
+| 18 | Chart rendering | **Catmull-Rom cubic bezier spline** for all line/area charts — smooth curves through every data point. All chart components are responsive via `useContainerWidth` (ResizeObserver) or SVG `viewBox`. |
+| 19 | Budget "Over" threshold | **Strictly greater than 100%** — at exactly 100% a budget is "at limit" (amber), not "over" (coral). Applies across all UI: cards, progress bars, daily spend chart, nudges. |
+| 20 | Client-side nudges | **`computeNudges(state)`** generates virtual nudge objects live (bills due ≤7 days, budgets ≥80%/>100%, low balance). Merged with stored nudges in the Nudges Inbox; no server needed. |
+| 21 | Budget suggestions | **`computeBudgetSuggestions(state)`** analyses 3 complete calendar months: surfaces missing budgets (≥£30/mo avg), too-tight (exceeded 2+/3 months), too-generous (<40% avg usage). Shown on Budgets screen; "Apply" pre-fills Add Budget sheet or adjusts existing budget directly. |
+| 22 | Goals | **Five goal types** — Savings, Debt-free, Net worth, Emergency fund, Surplus habit. Progress is derived live from state. Milestones at 25/50/75/100% trigger a celebration card (one-time per milestone). Suggested goals auto-detected from state. |
+| 23 | Surplus habit streak | **`spending_habit` goal** — counts consecutive months (backwards from now) where income > expenses using `state.transactions`. Displays a 6-month bar chart of surplus/deficit months. |
+| 24 | Scheduled transactions | **Future-dated transactions do not deplete account balance** — stored as `status: 'scheduled'`. `AUTO_POST_SCHEDULED` promotes them to `posted` and applies the balance delta when `date ≤ today`, running on app load and on tab focus. One-time `MIGRATE_SCHEDULED_TRANSACTIONS` fixes existing data. |
+| 25 | Upcoming payments | **Merges recurring template projections + scheduled transactions** — `UpcomingScreen` and `projectCashFlow` both include manually-entered future-dated transactions alongside recurring template forecasts, deduplicating where the same date/amount/account matches. |
+| 26 | Recurring end date / payments | **`endDate` and `maxPayments`** on recurring templates — `MARK_RECURRING_PAID` auto-deactivates the template when either limit is reached. Editable via the Edit Recurring sheet. |
+| 27 | Subscriptions filter | **`RecurringScreen` accepts a `filter` param** — the Subscriptions tile navigates with `{ filter: 'subscriptions' }`, showing only `cat-subs` items with a distinct "Subscriptions" heading. |
+| 28 | Payoff simulation — neverClears | **`neverClears` state** — when a credit card payment does not cover monthly interest, the simulation shows "Never clears" (not "Invalid Date"), calculates the minimum viable payment, and displays an actionable warning with the slider pre-ranged to be useful. |
 
 ---
 
@@ -370,7 +472,7 @@ All reports rendered as graphic cards. Charts are hand-rolled SVG (no third-part
 
 All rules can be disabled, edited, or extended by the user. Higher `priority` = evaluated first within axis.
 
-**Routing rules**
+### Routing rules
 
 | ID | Name | When | Then |
 | --- | --- | --- | --- |
@@ -383,7 +485,7 @@ All rules can be disabled, edited, or extended by the user. Higher `priority` = 
 | R7 | Quiet hours suppress Web Push for non-alerts | `time_of_day: in quiet_hours`, `severity ≠ alert` | `remove_channels: [web_push]` |
 | R8 | Quiet hours defer email to digest | `time_of_day: in quiet_hours`, `severity ≠ alert`, `email_digest_mode: immediate` | `remove_channels: [email]` |
 
-**Throttling rules**
+### Throttling rules
 
 | ID | Name | When | Then |
 | --- | --- | --- | --- |
@@ -392,7 +494,7 @@ All rules can be disabled, edited, or extended by the user. Higher `priority` = 
 | T3 | Web Push minimum gap | `channel: web_push` | `min_gap: 2h` |
 | T4 | Email immediate per-type daily cap | `channel: email`, `email_digest_mode: immediate` | `max_per_type_per_day: 2` |
 
-**Escalation rules**
+### Escalation rules
 
 | ID | Name | When | Then |
 | --- | --- | --- | --- |
@@ -407,19 +509,19 @@ All rules can be disabled, edited, or extended by the user. Higher `priority` = 
 | File | Purpose |
 | --- | --- |
 | `src/bappy-app.jsx` | App shell, routing, sheet dispatch, FAB |
-| `src/bappy-state.jsx` | Reducer, BappyProvider, BappyAuthProvider, sync |
+| `src/bappy-state.jsx` | Reducer, BappyProvider, BappyAuthProvider, sync, goalProgress, surplusMonths |
 | `src/bappy-data.js` | Default categories, nudge rules, settings seed |
-| `src/bappy-nav.jsx` | BappyRouter, ScreenHeader, TabBar, FAB |
-| `src/bappy-screens-home.jsx` | Home / Dashboard |
-| `src/bappy-screens-money.jsx` | Accounts, Ledger, Add/Edit Transaction, Add/Edit Account |
-| `src/bappy-screens-plan.jsx` | Budgets, Recurring templates, Suggestions inbox |
-| `src/bappy-screens-insights.jsx` | Insights home, spending donut, sparklines |
-| `src/bappy-screens-insights-reports.jsx` | Full report screens (summaries, forecast, debt simulation, net worth) |
-| `src/bappy-screens-more.jsx` | Settings, import wizard, backup |
+| `src/bappy-nav.jsx` | BappyRouter, ScreenHeader, TabBar, extended FAB |
+| `src/bappy-screens-home.jsx` | Home / Dashboard; TxnListRow (with SCHEDULED badge); client-side nudge generation |
+| `src/bappy-screens-money.jsx` | Accounts, Ledger (upcoming/posted split), Add/Edit Transaction, Add/Edit Account, Link Transfers sheet |
+| `src/bappy-screens-plan.jsx` | Budgets (with suggestions), Recurring (with edit sheet, end date, subscriptions filter), Goals (all types, milestone celebrations), Suggestions inbox |
+| `src/bappy-screens-insights.jsx` | Insights home, Cash Flow forecast (with additional income what-if), Debt simulation (neverClears handling), Upcoming Payments (merges scheduled + recurring) |
+| `src/bappy-screens-insights-reports.jsx` | Full report screens (summaries, net worth) — self-measuring responsive charts |
+| `src/bappy-screens-more.jsx` | Settings, import wizard (with skip-duplicates toggle), backup |
 | `src/bappy-screens-login.jsx` | Sign-in screen |
-| `src/bappy-charts.jsx` | SVG chart components |
-| `src/bappy-icons.jsx` | SVG icon path library |
-| `src/bappy-primitives.jsx` | Shared UI components (Card, Button, Sheet, Tag, etc.) |
+| `src/bappy-charts.jsx` | SVG charts with Catmull-Rom spline — Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, DebtCurve; useContainerWidth hook |
+| `src/bappy-icons.jsx` | SVG icon path library (phone, car, bag, child added) |
+| `src/bappy-primitives.jsx` | Shared UI components (Card, Button, Sheet, Tag, ProgressBar, etc.) |
 | `src/bappy-storage.js` | IndexedDB + localStorage persistence layer |
 | `src/firebase.js` | Firebase app init (single instance) |
 | `src/firebase-auth.js` | Firebase Auth helpers |
@@ -436,3 +538,5 @@ All rules can be disabled, edited, or extended by the user. Higher `priority` = 
 - Reports: summaries by day / week / month / year; expenses by type; expenses by category; available to spend; upcoming payments; percentages; graphic cards.
 
 Additions from decision rounds 1–4 (pay schedule, credit card tracking, debt simulation, cash flow forecasting, recurring detection, nudge engine, rules engine, Web Push) — all implemented.
+
+Additions from build sessions (rounds 5+): transfer linking, duplicate guards, real-time sync, loan fields, new categories, Goals (5 types + milestone celebrations), budget suggestions, scheduled transaction architecture, smooth spline charts, responsive chart sizing, recurring end dates, budget suggestions, client-side nudges, subscription filter, payoff simulation improvements.

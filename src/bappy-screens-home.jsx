@@ -193,6 +193,42 @@ function HomeScreen() {
         {recentNudges.map(n => <NudgeRow key={n.id} nudge={n} />)}
       </div>
 
+      {/* Goals teaser */}
+      {(state.goals || []).filter(g => g.active).length > 0 && (
+        <>
+          <SectionHeader right={<button onClick={() => route.push('goals')} style={{ fontSize: 12, color: 'var(--c-ocean-teal)', fontWeight: 500 }}>All goals</button>}>
+            Goals
+          </SectionHeader>
+          <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(state.goals || []).filter(g => g.active).slice(0, 2).map(g => {
+              const GOAL_GLYPHS = { savings: 'star', debt_payoff: 'shield', net_worth: 'spark', emergency_fund: 'acc-savings' };
+              const GOAL_TINTS  = { savings: '#F4A535', debt_payoff: '#03BCA5', net_worth: '#9C6ADE', emergency_fund: '#02A8B9' };
+              const prog = BappyUtil.goalProgress(g, state);
+              const tint = GOAL_TINTS[g.type] || '#02A8B9';
+              return (
+                <Card key={g.id} padding={14} onClick={() => route.push('goals')}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <IconContainer glyph={GOAL_GLYPHS[g.type] || 'star'} tint={tint} size={30} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--c-deep-ink)' }}>{g.title}</div>
+                      <div className="tnum" style={{ fontSize: 12, color: 'var(--c-slate-mute)', marginTop: 1 }}>
+                        {BappyUtil.fmtGBPCompact(prog.current)} of {BappyUtil.fmtGBPCompact(prog.target)}
+                      </div>
+                    </div>
+                    <div className="tnum" style={{ fontSize: 16, fontWeight: 600, color: tint }}>
+                      {prog.pct.toFixed(0)}%
+                    </div>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 999, background: 'var(--c-haze-teal)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: prog.pct + '%', borderRadius: 999, background: tint, transition: 'width 0.6s' }} />
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {/* Recent activity */}
       <SectionHeader right={<button onClick={() => route.push('ledger')} style={{ fontSize: 12, color: 'var(--c-ocean-teal)', fontWeight: 500 }}>Ledger</button>}>
         Recent activity
@@ -273,7 +309,16 @@ function TxnListRow({ txn, last, onClick }) {
           ? <IconContainer glyph="swap" tint="#7A8181" />
           : <IconContainer glyph={cat?.glyph || 'dot'} tint={isIncome ? '#03BCA5' : cat?.tint} variant={isIncome ? 'income' : 'default'} />
       }
-      title={txn.description}
+      title={
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ opacity: txn.status === 'scheduled' ? 0.65 : 1 }}>{txn.description}</span>
+          {txn.status === 'scheduled' && (
+            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 999, background: 'rgba(2,168,185,0.12)', color: 'var(--c-ocean-teal)', fontWeight: 600, letterSpacing: 0.3 }}>
+              SCHEDULED
+            </span>
+          )}
+        </span>
+      }
       subtitle={
         isTransfer
           ? `${BappyUtil.fmtRelativeDate(txn.date)} · ${isTransferOut ? acc?.name + ' → ' + otherAcc?.name : otherAcc?.name + ' → ' + acc?.name}`
@@ -294,11 +339,92 @@ function TxnListRow({ txn, last, onClick }) {
   );
 }
 
+// ─── Client-side nudge generation ───────────────────────────
+// Computes virtual nudge objects from current state without storing them.
+// Supplements any server-generated nudges in state.nudges.
+function computeNudges(state) {
+  const nudges = [];
+  const today = BappyUtil.today();
+  const todayStr = today.toISOString().slice(0, 10);
+
+  // bill_due — recurring items due within 7 days
+  state.recurring.filter(r => r.active).forEach(r => {
+    const days = BappyUtil.daysUntil(r.nextDue);
+    if (days <= 7) {
+      nudges.push({
+        id: 'virtual-bill-' + r.id,
+        type: 'bill_due',
+        severity: days < 0 ? 'alert' : days <= 1 ? 'warning' : 'info',
+        title: days < 0 ? `${r.payee} is overdue` : days === 0 ? `${r.payee} due today` : `${r.payee} due in ${days} day${days !== 1 ? 's' : ''}`,
+        body: BappyUtil.fmtGBP(r.amount) + ' · ' + r.frequency,
+        status: 'new',
+        createdAt: todayStr,
+        virtual: true,
+      });
+    }
+  });
+
+  // budget_threshold — budgets over 80%
+  state.budgets.forEach(b => {
+    const monthStart = new Date(today); monthStart.setUTCDate(1);
+    const spent = state.transactions
+      .filter(t => t.direction === 'expense' && new Date(t.date) >= monthStart && (!b.categoryId || t.categoryId === b.categoryId))
+      .reduce((s, t) => s + t.amount, 0);
+    const pct = b.amount > 0 ? (spent / b.amount) * 100 : 0;
+    const cat = state.categories.find(c => c.id === b.categoryId);
+    const label = cat?.name || 'Overall';
+    if (pct > 100) {
+      nudges.push({
+        id: 'virtual-budget-over-' + b.id,
+        type: 'budget_threshold',
+        severity: 'alert',
+        title: `${label} budget exceeded`,
+        body: `${BappyUtil.fmtGBP(spent)} spent of ${BappyUtil.fmtGBP(b.amount)} limit`,
+        status: 'new', createdAt: todayStr, virtual: true,
+      });
+    } else if (pct >= 80) {
+      nudges.push({
+        id: 'virtual-budget-risk-' + b.id,
+        type: 'budget_threshold',
+        severity: 'warning',
+        title: `${label} budget at ${pct.toFixed(0)}%`,
+        body: `${BappyUtil.fmtGBP(b.amount - spent)} remaining`,
+        status: 'new', createdAt: todayStr, virtual: true,
+      });
+    }
+  });
+
+  // low_balance — current account below floor
+  const floor = state.settings?.lowBalanceFloor || 200;
+  const primaryAcc = state.accounts.find(a => a.type === 'current');
+  if (primaryAcc && primaryAcc.balance < floor) {
+    nudges.push({
+      id: 'virtual-low-balance-' + primaryAcc.id,
+      type: 'low_balance',
+      severity: primaryAcc.balance < 0 ? 'alert' : 'warning',
+      title: `Low balance on ${primaryAcc.name}`,
+      body: `${BappyUtil.fmtGBP(primaryAcc.balance)} · floor is ${BappyUtil.fmtGBP(floor)}`,
+      status: 'new', createdAt: todayStr, virtual: true,
+    });
+  }
+
+  return nudges;
+}
+
 // ─── Nudge inbox ─────────────────────────────────────────────
 function NudgesScreen() {
   const { state, dispatch } = useBappy();
   const [tab, setTab] = React.useState('new');
-  const filtered = state.nudges.filter(n => {
+
+  // Merge stored nudges with live computed nudges (virtual ones can't be dismissed/acted)
+  const virtualNudges = computeNudges(state);
+  const storedIds = new Set(state.nudges.map(n => n.id));
+  const allNudges = [
+    ...state.nudges,
+    ...virtualNudges.filter(n => !storedIds.has(n.id)),
+  ];
+
+  const filtered = allNudges.filter(n => {
     if (tab === 'new') return n.status === 'new' || n.status === 'seen';
     if (tab === 'acted') return n.status === 'acted';
     if (tab === 'dismissed') return n.status === 'dismissed';
@@ -310,7 +436,7 @@ function NudgesScreen() {
       <div style={{ padding: '0 16px 12px' }}>
         <Segmented
           options={[
-            { value: 'new', label: 'Active (' + state.nudges.filter(n => n.status === 'new' || n.status === 'seen').length + ')' },
+            { value: 'new', label: 'Active (' + allNudges.filter(n => n.status === 'new' || n.status === 'seen').length + ')' },
             { value: 'acted', label: 'Acted' },
             { value: 'dismissed', label: 'Dismissed' },
           ]}
@@ -332,7 +458,8 @@ function NudgeDetailScreen() {
   const { state, dispatch } = useBappy();
   const route = useRoute();
   const id = route.current.params?.id;
-  const nudge = state.nudges.find(n => n.id === id);
+  const allNudges = [...state.nudges, ...computeNudges(state).filter(n => !state.nudges.some(s => s.id === n.id))];
+  const nudge = allNudges.find(n => n.id === id);
   if (!nudge) return <div style={{ padding: 24 }}>Not found</div>;
 
   const severityBg = nudge.severity === 'alert' ? 'var(--c-coral)'
@@ -340,8 +467,10 @@ function NudgeDetailScreen() {
                    : 'var(--c-ocean-teal)';
 
   const handleAct = () => {
-    dispatch({ type: 'UPDATE_NUDGE', id: nudge.id, patch: { status: 'acted', acted_at: BappyUtil.today().toISOString() } });
-    // deep-link
+    if (!nudge.virtual) {
+      dispatch({ type: 'UPDATE_NUDGE', id: nudge.id, patch: { status: 'acted', acted_at: BappyUtil.today().toISOString() } });
+    }
+    // deep-link via action field (stored nudges) or type fallback (virtual nudges)
     const a = nudge.action;
     if (a?.screen === 'forecast') route.replace('forecast');
     else if (a?.screen === 'suggestions') route.replace('suggestions');
@@ -349,11 +478,16 @@ function NudgeDetailScreen() {
     else if (a?.screen === 'debt') route.replace('debt-per', { id: a.id });
     else if (a?.screen === 'recurring') route.replace('recurring');
     else if (a?.screen === 'transfer') route.replace('ledger');
+    else if (nudge.type === 'bill_due') route.replace('recurring');
+    else if (nudge.type === 'budget_threshold') route.replace('budgets');
+    else if (nudge.type === 'low_balance') route.replace('accounts');
     else route.pop();
   };
 
   const handleDismiss = () => {
-    dispatch({ type: 'UPDATE_NUDGE', id: nudge.id, patch: { status: 'dismissed' } });
+    if (!nudge.virtual) {
+      dispatch({ type: 'UPDATE_NUDGE', id: nudge.id, patch: { status: 'dismissed' } });
+    }
     route.pop();
   };
 
@@ -379,25 +513,33 @@ function NudgeDetailScreen() {
       </div>
 
       {/* Context */}
-      <SectionHeader>Context</SectionHeader>
-      <div style={{ padding: '0 16px' }}>
-        <Card padding={14}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {Object.entries(nudge.context).map(([k, v]) => (
-              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--c-slate-mute)' }}>{k.replace(/_/g, ' ')}</span>
-                <span className="tnum" style={{ color: 'var(--c-deep-ink)', fontWeight: 500 }}>{String(v)}</span>
+      {nudge.context && Object.keys(nudge.context).length > 0 && (
+        <>
+          <SectionHeader>Context</SectionHeader>
+          <div style={{ padding: '0 16px' }}>
+            <Card padding={14}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {Object.entries(nudge.context).map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--c-slate-mute)' }}>{k.replace(/_/g, ' ')}</span>
+                    <span className="tnum" style={{ color: 'var(--c-deep-ink)', fontWeight: 500 }}>{String(v)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            </Card>
           </div>
-        </Card>
-      </div>
+        </>
+      )}
 
       {/* Channels */}
-      <SectionHeader>Delivered via</SectionHeader>
-      <div style={{ padding: '0 16px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {nudge.channels.map(c => <ChannelPill key={c} channel={c} />)}
-      </div>
+      {nudge.channels?.length > 0 && (
+        <>
+          <SectionHeader>Delivered via</SectionHeader>
+          <div style={{ padding: '0 16px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {nudge.channels.map(c => <ChannelPill key={c} channel={c} />)}
+          </div>
+        </>
+      )}
 
       {/* Type */}
       <SectionHeader>Type</SectionHeader>

@@ -6,6 +6,18 @@ import { chartPalette, Sparkline, AreaChart, Donut, BarChart, StackedDebtChart, 
 import { BappyRouter, BappyRouteContext, useRoute, ScreenHeader, TabBar, FAB } from './bappy-nav.jsx'
 // Bappy — Insights tab: index, cash flow forecast, debt simulators
 
+function FilterChip({ children, active, onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      flexShrink: 0, padding: '6px 12px', borderRadius: 999,
+      background: active ? 'var(--c-deep-ink)' : '#fff',
+      border: '1px solid ' + (active ? 'var(--c-deep-ink)' : 'var(--c-border)'),
+      color: active ? '#fff' : 'var(--c-slate)',
+      fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap',
+    }}>{children}</button>
+  );
+}
+
 function InsightsHomeScreen() {
   const { state } = useBappy();
   const route = useRoute();
@@ -40,7 +52,7 @@ function InsightsHomeScreen() {
       <ScreenHeader title="Insights" subtitle="Reports & forecasts" />
 
       {/* Tiles */}
-      <div style={{ padding: '0 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ padding: '0 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'stretch' }}>
         <InsightTile
           title="Cash flow"
           subtitle="next 90 days"
@@ -50,7 +62,7 @@ function InsightsHomeScreen() {
           </Tag>}
           big={BappyUtil.fmtGBPCompact(cashEnd)}
           metric={
-            <Sparkline values={cash.map(c => c.balance)} width={140} height={30} />
+            <Sparkline values={cash.map(c => c.balance)} height={64} />
           }
         />
         <InsightTile
@@ -114,7 +126,10 @@ function InsightsHomeScreen() {
 
 function InsightTile({ title, subtitle, big, metric, onClick, right }) {
   return (
-    <Card padding={14} onClick={onClick}>
+    <Card padding={14} onClick={onClick} style={{
+      display: 'flex', flexDirection: 'column',
+      minHeight: 'clamp(130px, 14vw, 220px)',
+    }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.1, color: 'var(--c-slate-mute)', fontWeight: 500 }}>{title}</div>
@@ -123,7 +138,7 @@ function InsightTile({ title, subtitle, big, metric, onClick, right }) {
         {right}
       </div>
       <div className="tnum" style={{ fontSize: 22, fontWeight: 500, color: 'var(--c-deep-ink)', marginTop: 12, letterSpacing: -0.3 }}>{big}</div>
-      <div style={{ marginTop: 6 }}>{metric}</div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', marginTop: 8 }}>{metric}</div>
     </Card>
   );
 }
@@ -141,12 +156,31 @@ function CompactTile({ glyph, title, onClick }) {
 // ─── Cash flow forecast ──────────────────────────────────────
 function ForecastScreen() {
   const { state } = useBappy();
-  const [horizon, setHorizon] = React.useState(90);
-  const [whatIf, setWhatIf] = React.useState(0);
+  const [horizon,       setHorizon]       = React.useState(90);
+  const [whatIfMonthly, setWhatIfMonthly] = React.useState(0);  // extra monthly income
+  const [whatIfOneOff,  setWhatIfOneOff]  = React.useState(0);  // one-off lump sum in 7 days
 
   const baseCash = BappyUtil.projectCashFlow(state, horizon);
-  // Apply what-if: extra income at day 7
-  const cash = whatIf === 0 ? baseCash : baseCash.map((p, i) => ({ ...p, balance: p.balance + (i >= 7 ? whatIf : 0) }));
+  const floor    = state.settings?.lowBalanceFloor || 200;
+
+  // Apply what-if: monthly income accumulates each 30-day period; one-off lands at day 7
+  const cash = React.useMemo(() => {
+    if (whatIfMonthly === 0 && whatIfOneOff === 0) return baseCash;
+    let monthlyAccum = 0;
+    return baseCash.map((p, i) => {
+      if (i > 0 && i % 30 === 0) monthlyAccum += whatIfMonthly;
+      return { ...p, balance: p.balance + (i >= 7 ? whatIfOneOff : 0) + monthlyAccum };
+    });
+  }, [baseCash, whatIfMonthly, whatIfOneOff]);
+
+  // Break-even: minimum monthly income needed to stay above the floor across the horizon
+  const baseMinBalance = baseCash.length ? Math.min(...baseCash.map(p => p.balance)) : 0;
+  const monthsInHorizon = Math.ceil(horizon / 30);
+  const suggestedMonthly = baseMinBalance < floor
+    ? Math.ceil(Math.max(0, (floor - baseMinBalance) / monthsInHorizon) / 50) * 50
+    : 0;
+  const withIncomeMin = cash.length ? Math.min(...cash.map(p => p.balance)) : 0;
+  const isStillNegative = withIncomeMin < floor;
   const [cashChartRef, cashChartW] = useContainerWidth(306);
   const minPoint = cash.length ? cash.reduce((a, b) => (b.balance < a.balance ? b : a), cash[0]) : { balance: 0, date: new Date().toISOString().slice(0, 10) };
   const endPoint = cash.length ? cash[cash.length - 1] : { balance: 0, date: new Date().toISOString().slice(0, 10) };
@@ -225,26 +259,80 @@ function ForecastScreen() {
         />
       </div>
 
-      {/* What-if */}
-      <SectionHeader>What-if · extra income</SectionHeader>
-      <div style={{ padding: '0 16px' }}>
+      {/* Additional income what-if */}
+      <SectionHeader>Additional income · what-if</SectionHeader>
+      <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+        {/* Break-even insight */}
+        {suggestedMonthly > 0 && (
+          <Card padding={12} style={{ background: 'rgba(244,165,53,0.08)', border: '1px solid rgba(244,165,53,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <Icon name="warn" size={15} color="var(--c-amber)" style={{ marginTop: 1, flexShrink: 0 }} />
+              <div style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5 }}>
+                Your balance is projected to fall below the <strong>{BappyUtil.fmtGBP(floor)}</strong> floor.
+                {' '}You need approximately <strong style={{ color: 'var(--c-deep-ink)' }}>{BappyUtil.fmtGBP(suggestedMonthly)}/month</strong> extra to stay above it.
+                <button
+                  onClick={() => setWhatIfMonthly(suggestedMonthly)}
+                  style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 999, background: 'var(--c-ocean-teal)', color: '#fff', fontSize: 11, fontWeight: 600 }}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Monthly income slider */}
         <Card padding={14}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 13, color: 'var(--c-slate)' }}>One-off in 7 days</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2 }}>
+            <span style={{ fontSize: 13, color: 'var(--c-slate)', fontWeight: 500 }}>Extra monthly income</span>
             <span className="tnum" style={{ fontSize: 18, fontWeight: 500, color: 'var(--c-ocean-teal)' }}>
-              {BappyUtil.fmtGBP(whatIf)}
+              +{BappyUtil.fmtGBP(whatIfMonthly)}<span style={{ fontSize: 11, color: 'var(--c-slate-mute)', fontWeight: 400 }}>/mo</span>
             </span>
           </div>
-          <input
-            type="range" min={0} max={1500} step={50}
-            value={whatIf}
-            onChange={e => setWhatIf(+e.target.value)}
-            style={sliderStyle}
-          />
+          <div style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginBottom: 8 }}>
+            Simulates a pay rise, side income, or benefit — added every 30 days over the horizon.
+          </div>
+          <input type="range" min={0} max={3000} step={50} value={whatIfMonthly} onChange={e => setWhatIfMonthly(+e.target.value)} style={sliderStyle} />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--c-slate-mute)', marginTop: 2 }}>
-            <span>£0</span><span>£1,500</span>
+            <span>£0</span><span>£3,000/mo</span>
           </div>
         </Card>
+
+        {/* One-off slider */}
+        <Card padding={14}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2 }}>
+            <span style={{ fontSize: 13, color: 'var(--c-slate)', fontWeight: 500 }}>One-off payment in 7 days</span>
+            <span className="tnum" style={{ fontSize: 18, fontWeight: 500, color: 'var(--c-ocean-teal)' }}>
+              +{BappyUtil.fmtGBP(whatIfOneOff)}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginBottom: 8 }}>
+            Simulates a bonus, tax refund, or one-time windfall landing in a week.
+          </div>
+          <input type="range" min={0} max={5000} step={50} value={whatIfOneOff} onChange={e => setWhatIfOneOff(+e.target.value)} style={sliderStyle} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--c-slate-mute)', marginTop: 2 }}>
+            <span>£0</span><span>£5,000</span>
+          </div>
+        </Card>
+
+        {/* Outcome summary */}
+        {(whatIfMonthly > 0 || whatIfOneOff > 0) && (
+          <Card padding={12} style={{
+            background: isStillNegative ? 'rgba(244,165,53,0.08)' : 'rgba(3,188,165,0.08)',
+            border: `1px solid ${isStillNegative ? 'rgba(244,165,53,0.3)' : 'rgba(3,188,165,0.3)'}`,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name={isStillNegative ? 'warn' : 'check'} size={15} color={isStillNegative ? 'var(--c-amber)' : 'var(--c-seafoam)'} />
+              <span style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5 }}>
+                {isStillNegative
+                  ? <>With this income the lowest projected balance is <strong className="tnum">{BappyUtil.fmtGBP(withIncomeMin)}</strong> — still below the floor. Try increasing the monthly amount.</>
+                  : <>With this income you stay above the <strong>{BappyUtil.fmtGBP(floor)}</strong> floor. Lowest projected: <strong className="tnum">{BappyUtil.fmtGBP(withIncomeMin)}</strong>.</>
+                }
+              </span>
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* Liquidity alerts */}
@@ -329,12 +417,13 @@ function DebtPerScreen() {
     );
   }
 
-  // Find scheduled repayment from recurring
-  const repayRec = state.recurring.find(r => r.accountId === accountId);
-  const scheduled = repayRec?.amount || 100;
+  // Find scheduled repayment from recurring (prefer account's repaymentAmount, then recurring template, then min viable)
+  const repayRec   = state.recurring.find(r => r.accountId === accountId && r.direction === 'expense');
+  const scheduled  = account.repaymentAmount || repayRec?.amount ||
+    Math.max(25, Math.ceil(Math.abs(account.balance) * 0.02)); // fallback: 2% of balance (typical cc minimum)
 
   const [extra, setExtra] = React.useState(0);
-  const [lump, setLump] = React.useState(0);
+  const [lump,  setLump]  = React.useState(0);
 
   const baseline = BappyUtil.simulateDebt(Math.abs(account.balance), account.apr || 7.9, scheduled);
   const withExtra = BappyUtil.simulateDebt(
@@ -342,13 +431,24 @@ function DebtPerScreen() {
   );
   const [debtChartRef, debtChartW] = useContainerWidth(306);
 
-  const monthsSaved = baseline.payoffMonths - withExtra.payoffMonths;
-  const interestSaved = baseline.interestPaid - withExtra.interestPaid;
+  // Minimum monthly payment needed to cover interest and start reducing principal
+  const monthlyInterestOnly = Math.abs(account.balance) * ((account.apr || 7.9) / 100 / 12);
+  const minViablePayment = Math.ceil(monthlyInterestOnly + 1);
 
-  const baseDate = new Date(BappyUtil.today());
-  baseDate.setUTCMonth(baseDate.getUTCMonth() + baseline.payoffMonths);
-  const newDate = new Date(BappyUtil.today());
-  newDate.setUTCMonth(newDate.getUTCMonth() + withExtra.payoffMonths);
+  const monthsSaved    = isFinite(baseline.payoffMonths) && isFinite(withExtra.payoffMonths)
+    ? baseline.payoffMonths - withExtra.payoffMonths : 0;
+  const interestSaved  = isFinite(baseline.interestPaid) && isFinite(withExtra.interestPaid)
+    ? baseline.interestPaid - withExtra.interestPaid : 0;
+
+  // Safe date — guard against Infinity payoffMonths
+  const safeAddMonths = (months) => {
+    if (!isFinite(months)) return null;
+    const d = new Date(BappyUtil.today());
+    d.setUTCMonth(d.getUTCMonth() + Math.min(months, 1200)); // cap at 100 years
+    return d;
+  };
+  const newDate  = safeAddMonths(withExtra.payoffMonths);
+  const baseDate = safeAddMonths(baseline.payoffMonths);
 
   return (
     <div style={{ paddingBottom: 140 }}>
@@ -374,8 +474,10 @@ function DebtPerScreen() {
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: 500 }}>Clear by</div>
-                <div className="tnum" style={{ fontSize: 26, color: '#fff', fontWeight: 400, marginTop: 4 }}>
-                  {newDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+                <div className="tnum" style={{ fontSize: 26, color: withExtra.neverClears ? '#FFC6CE' : '#fff', fontWeight: 400, marginTop: 4 }}>
+                  {withExtra.neverClears
+                    ? 'Never clears'
+                    : newDate?.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) ?? '—'}
                 </div>
                 {monthsSaved > 0 && (
                   <div style={{ fontSize: 12, color: 'var(--c-seafoam)', marginTop: 2 }}>
@@ -386,7 +488,7 @@ function DebtPerScreen() {
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: 500 }}>Interest</div>
                 <div className="tnum" style={{ fontSize: 22, color: '#fff', fontWeight: 400, marginTop: 4 }}>
-                  {BappyUtil.fmtGBP(withExtra.interestPaid)}
+                  {withExtra.neverClears ? '—' : BappyUtil.fmtGBP(withExtra.interestPaid)}
                 </div>
                 {interestSaved > 0 && (
                   <div style={{ fontSize: 12, color: 'var(--c-seafoam)', marginTop: 2 }}>
@@ -414,9 +516,31 @@ function DebtPerScreen() {
         </Card>
       </div>
 
+      {/* neverClears warning */}
+      {baseline.neverClears && (
+        <div style={{ padding: '0 16px 0' }}>
+          <Card padding={12} style={{ background: 'rgba(232,86,106,0.08)', border: '1px solid rgba(232,86,106,0.3)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <Icon name="warn" size={15} color="var(--c-coral)" style={{ marginTop: 1, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: 'var(--c-slate)', lineHeight: 1.5 }}>
+                At <strong>{BappyUtil.fmtGBP(scheduled)}/mo</strong> your payment only covers{' '}
+                {scheduled < monthlyInterestOnly ? 'part of' : ''} the monthly interest ({BappyUtil.fmtGBP(monthlyInterestOnly)}).
+                You need at least <strong>{BappyUtil.fmtGBP(minViablePayment)}/mo</strong> to start reducing the balance.
+                Use the slider below to simulate paying more.
+              </span>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* Inputs */}
       <SectionHeader>What-if controls</SectionHeader>
       <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {(() => {
+          // Slider max: at least enough to clear the debt in ~5 years, rounded up to nearest £50
+          const needed = Math.max(minViablePayment + 50, Math.ceil(Math.abs(account.balance) / 60 / 50) * 50);
+          const sliderMax = Math.max(500, needed);
+          return (
         <Card padding={14}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span style={{ fontSize: 13, color: 'var(--c-slate)' }}>Extra per month</span>
@@ -424,11 +548,18 @@ function DebtPerScreen() {
               +{BappyUtil.fmtGBP(extra)}
             </span>
           </div>
-          <input type="range" min={0} max={400} step={10} value={extra} onChange={e => setExtra(+e.target.value)} style={sliderStyle} />
+          <input type="range" min={0} max={sliderMax} step={10} value={extra} onChange={e => setExtra(+e.target.value)} style={sliderStyle} />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--c-slate-mute)', marginTop: 2 }}>
-            <span>£0</span><span>£400</span>
+            <span>£0</span><span>{BappyUtil.fmtGBP(sliderMax)}</span>
           </div>
+          {baseline.neverClears && extra < (minViablePayment - scheduled) && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--c-coral)' }}>
+              Still not enough to cover interest — raise to at least +{BappyUtil.fmtGBP(Math.max(0, minViablePayment - scheduled))}
+            </div>
+          )}
         </Card>
+          );
+        })()}
         <Card padding={14}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span style={{ fontSize: 13, color: 'var(--c-slate)' }}>One-off lump sum today</span>
@@ -441,6 +572,7 @@ function DebtPerScreen() {
             <span>£0</span><span>{BappyUtil.fmtGBP(Math.abs(account.balance))}</span>
           </div>
         </Card>
+
       </div>
 
       {/* Summary */}
@@ -450,16 +582,19 @@ function DebtPerScreen() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <div style={{ fontSize: 10, color: 'var(--c-slate-mute)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 500 }}>Baseline</div>
-              <div className="tnum" style={{ fontSize: 16, fontWeight: 500, color: 'var(--c-slate)', marginTop: 2 }}>{baseline.payoffMonths}mo</div>
+              <div className="tnum" style={{ fontSize: 16, fontWeight: 500, color: 'var(--c-slate)', marginTop: 2 }}>{baseline.neverClears ? '∞' : baseline.payoffMonths + 'mo'}</div>
               <div className="tnum" style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginTop: 1 }}>
-                {BappyUtil.fmtGBP(baseline.interestPaid)} interest
+                {baseline.neverClears ? 'Never clears at this rate' : BappyUtil.fmtGBP(baseline.interestPaid) + ' interest'}
               </div>
+              <div style={{ fontSize: 10, color: 'var(--c-slate-mute)', marginTop: 3 }}>{BappyUtil.fmtGBP(scheduled)}/mo payment</div>
             </div>
             <div>
               <div style={{ fontSize: 10, color: 'var(--c-seafoam)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 500 }}>With extra</div>
-              <div className="tnum" style={{ fontSize: 16, fontWeight: 500, color: 'var(--c-deep-ink)', marginTop: 2 }}>{withExtra.payoffMonths}mo</div>
+              <div className="tnum" style={{ fontSize: 16, fontWeight: 500, color: 'var(--c-deep-ink)', marginTop: 2 }}>
+                {withExtra.neverClears ? '∞' : withExtra.payoffMonths + 'mo'}
+              </div>
               <div className="tnum" style={{ fontSize: 11, color: 'var(--c-slate-mute)', marginTop: 1 }}>
-                {BappyUtil.fmtGBP(withExtra.interestPaid)} interest
+                {withExtra.neverClears ? 'Never clears' : BappyUtil.fmtGBP(withExtra.interestPaid) + ' interest'}
               </div>
             </div>
           </div>
@@ -710,6 +845,27 @@ function AvailableScreen() {
 function UpcomingScreen() {
   const { state } = useBappy();
   const proj = BappyUtil.projectRecurring(state.recurring, 90);
+
+  // Merge manually-entered scheduled (future-dated) transactions that aren't
+  // already covered by a recurring template projection on the same date/account/amount.
+  state.transactions.forEach(txn => {
+    if (txn.status !== 'scheduled') return;
+    if (txn.direction === 'transfer-in') return;
+    const alreadyCovered = proj.some(p =>
+      p.date === txn.date && p.accountId === txn.accountId &&
+      Math.abs(p.amount - txn.amount) < 0.01
+    );
+    if (!alreadyCovered) {
+      proj.push({
+        date: txn.date, amount: txn.amount, direction: txn.direction,
+        accountId: txn.accountId, categoryId: txn.categoryId,
+        payee: txn.description || 'Scheduled payment',
+        isScheduledTxn: true,
+      });
+    }
+  });
+  proj.sort((a, b) => a.date.localeCompare(b.date));
+
   const groups = { week: [], month: [], later: [] };
   proj.forEach(p => {
     const d = BappyUtil.daysUntil(p.date);
@@ -736,7 +892,14 @@ function UpcomingScreen() {
                   <ListRow key={i} last={i === items.length - 1}
                     icon={<IconContainer glyph={cat?.glyph || 'dot'} tint={p.direction === 'income' ? '#03BCA5' : cat?.tint}
                       variant={p.direction === 'income' ? 'income' : 'default'} />}
-                    title={p.payee}
+                    title={
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {p.payee}
+                        {p.isScheduledTxn && (
+                          <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 999, background: 'rgba(2,168,185,0.12)', color: 'var(--c-ocean-teal)', fontWeight: 600 }}>SCHEDULED</span>
+                        )}
+                      </span>
+                    }
                     subtitle={`${BappyUtil.fmtRelativeDate(p.date)} · ${acc?.name}`}
                     right={<span className="tnum" style={{ fontSize: 14, fontWeight: 500,
                       color: p.direction === 'income' ? 'var(--c-seafoam)' : 'var(--c-deep-ink)' }}>
